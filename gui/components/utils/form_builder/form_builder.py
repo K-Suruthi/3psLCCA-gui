@@ -1,0 +1,323 @@
+"""
+Generic form builder for ScrollableForm subclasses.
+
+Core function
+-------------
+    build_form(host, fields, base_docs_url) -> list[str]
+
+Iterates a list of Section / FieldDef entries, creates the appropriate
+Qt widgets, registers them on the host via host.field(), wires up
+style-reset signals, and returns the list of required field keys.
+
+The host must expose:
+    host.form          – QFormLayout to add rows to
+    host.field(key, w) – registers widget and returns it (ScrollableForm API)
+    host._on_field_changed() – called after upload_img interactions
+"""
+
+from __future__ import annotations
+
+import base64
+from typing import Any
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from .form_definitions import FieldDef, Section
+from .image_utils import compress_image, resolve_img_settings
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_section_header(title: str) -> list[QWidget]:
+    """Return [header QLabel, divider QWidget] ready to add to a QFormLayout."""
+    header = QLabel(title)
+    header.setStyleSheet(
+        "font-size: 13px; font-weight: 700;" "padding-top: 14px; padding-bottom: 2px;"
+    )
+
+    divider = QWidget()
+    divider.setFixedHeight(1)
+    divider.setStyleSheet("background-color: #d0d0d0;")
+
+    return [header, divider]
+
+
+def _make_explanation_label(explanation: str, doc_url: str | None) -> QLabel:
+    """Render explanation text with an optional inline ⓘ docs link."""
+    if doc_url:
+        html = (
+            explanation
+            + f' <a href="{doc_url}" style="text-decoration:none;font-weight:600;"> ⓘ</a>'
+        )
+    else:
+        html = explanation
+
+    label = QLabel(html)
+    label.setWordWrap(True)
+    label.setTextFormat(Qt.RichText)
+    label.setOpenExternalLinks(True)
+    return label
+
+
+def _make_upload_img_widget(
+    host: Any,
+    key: str,
+    preset: Any,
+) -> tuple[QWidget, QLabel, QLineEdit]:
+    """
+    Build the image upload container (preview + Browse / Clear buttons).
+
+    Returns
+    -------
+    container  : QWidget  – the outer widget added to the form layout
+    preview    : QLabel   – the image preview label (caller may store a ref)
+    logo_input : QLineEdit – hidden input holding the base64 string
+    """
+    # Validate the preset early so misconfigured field defs fail at startup,
+    # not at runtime when the user actually clicks Browse.
+    resolve_img_settings(preset)
+
+    container = QWidget()
+    file_layout = QVBoxLayout(container)
+    file_layout.setContentsMargins(0, 0, 0, 0)
+    file_layout.setSpacing(6)
+
+    # Hidden QLineEdit stores the base64-encoded image for save/load.
+    logo_input = QLineEdit()
+    logo_input.setReadOnly(True)
+    logo_input.hide()
+
+    preview = QLabel("No image selected")
+    preview.setFixedSize(120, 120)
+    preview.setAlignment(Qt.AlignCenter)
+    preview.setStyleSheet("border: 1px solid #ccc;")
+
+    btn_browse = QPushButton("Browse Image")
+    btn_browse.setMinimumHeight(30)
+
+    btn_clear = QPushButton("Clear Image")
+    btn_clear.setMinimumHeight(30)
+
+    # ---- closures --------------------------------------------------------
+    def browse_file(
+        _checked: bool = False,
+        _input: QLineEdit = logo_input,
+        _preview: QLabel = preview,
+    ) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            host,
+            "Select Image",
+            "",
+            "Images (*.png *.jpg *.jpeg)",
+        )
+        if not file_path:
+            return
+
+        try:
+            settings = resolve_img_settings(preset)
+            img_bytes = compress_image(file_path, settings)
+        except Exception as e:
+            QMessageBox.warning(host, "Image Error", f"Could not process image:\n{e}")
+            return
+
+        pixmap = QPixmap()
+        pixmap.loadFromData(img_bytes)
+        scaled = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        _preview.setPixmap(scaled)
+        _preview.setText("")
+
+        _input.setText(base64.b64encode(img_bytes).decode("utf-8"))
+        host._on_field_changed()
+
+    def clear_image(
+        _checked: bool = False,
+        _input: QLineEdit = logo_input,
+        _preview: QLabel = preview,
+    ) -> None:
+        _input.clear()
+        _preview.setPixmap(QPixmap())
+        _preview.setText("No image selected")
+        host._on_field_changed()
+
+    btn_browse.clicked.connect(browse_file)
+    btn_clear.clicked.connect(clear_image)
+
+    btn_row = QWidget()
+    btn_row_layout = QHBoxLayout(btn_row)
+    btn_row_layout.setContentsMargins(0, 0, 0, 0)
+    btn_row_layout.setSpacing(6)
+    btn_row_layout.addWidget(btn_browse)
+    btn_row_layout.addWidget(btn_clear)
+
+    file_layout.addWidget(preview)
+    file_layout.addWidget(btn_row)
+
+    return container, preview, logo_input
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+#: Stores upload_img preview labels keyed by field key so the host's
+#: clear_all() implementation can reset them without knowing internals.
+#: Attached to the host as  host._img_previews  by build_form().
+_IMG_PREVIEWS_ATTR = "_img_previews"
+
+
+def build_form(
+    host: Any,
+    fields: list[Section | FieldDef],
+    base_docs_url: str = "",
+) -> list[str]:
+    """
+    Iterate *fields* and populate ``host.form`` (a QFormLayout).
+
+    For each FieldDef:
+    - Creates a labeled section widget with explanation text + optional docs link
+    - Instantiates the correct Qt input widget for the field type
+    - Registers it via ``host.field(key, widget)`` and sets it as ``host.<key>``
+    - Wires up style-reset signals
+    - Tracks required keys
+
+    For each Section:
+    - Renders a bold header label and a horizontal divider
+
+    Parameters
+    ----------
+    host : ScrollableForm subclass
+        The form instance being populated.
+    fields : list[Section | FieldDef]
+        Declarative field definitions (see form_definitions.py).
+    base_docs_url : str
+        Base URL for documentation links. Field doc_slug is appended.
+        Pass empty string to disable all ⓘ links.
+
+    Returns
+    -------
+    list[str]
+        Keys of all required fields, ready to assign to ``host.required_keys``.
+    """
+    # Ensure a dict exists on the host for tracking upload_img previews
+    if not hasattr(host, _IMG_PREVIEWS_ATTR):
+        setattr(host, _IMG_PREVIEWS_ATTR, {})
+
+    img_previews: dict[str, QLabel] = getattr(host, _IMG_PREVIEWS_ATTR)
+    required_keys: list[str] = []
+
+    for entry in fields:
+
+        # ── Section header ────────────────────────────────────────────────
+        if isinstance(entry, Section):
+            for widget in _make_section_header(entry.title):
+                host.form.addRow(widget)
+            continue
+
+        # ── Field entry ───────────────────────────────────────────────────
+        f: FieldDef = entry
+
+        section = QWidget()
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(0, 8, 0, 8)
+        layout.setSpacing(4)
+
+        # Title
+        title_label = QLabel(f"{f.title} *" if f.required else f.title)
+        title_label.setStyleSheet("font-weight: 600;")
+        layout.addWidget(title_label)
+
+        # Explanation + optional docs link
+        if f.explanation:
+            doc_url = (
+                f"{base_docs_url}{f.doc_slug}" if base_docs_url and f.doc_slug else None
+            )
+            layout.addWidget(_make_explanation_label(f.explanation, doc_url))
+
+        # ── text ──────────────────────────────────────────────────────────
+        if f.field_type == "text":
+            widget = QLineEdit()
+            widget.setMinimumHeight(30)
+            setattr(host, f.key, host.field(f.key, widget))
+            widget.textChanged.connect(lambda _, w=widget: w.setStyleSheet(""))
+
+        # ── textarea ──────────────────────────────────────────────────────
+        elif f.field_type == "textarea":
+            widget = QTextEdit()
+            widget.setMinimumHeight(80)
+            widget.setMaximumHeight(120)
+            setattr(host, f.key, host.field(f.key, widget))
+
+        # ── int ───────────────────────────────────────────────────────────
+        elif f.field_type == "int":
+            lo, hi = f.options
+            widget = QSpinBox()
+            widget.setRange(lo, hi)
+            if f.unit:
+                widget.setSuffix(f" {f.unit}")
+            widget.setMinimumHeight(30)
+            setattr(host, f.key, host.field(f.key, widget))
+            widget.valueChanged.connect(lambda _, w=widget: w.setStyleSheet(""))
+
+        # ── float ─────────────────────────────────────────────────────────
+        elif f.field_type == "float":
+            lo, hi, decimals = f.options
+            widget = QDoubleSpinBox()
+            widget.setRange(lo, hi)
+            widget.setDecimals(decimals)
+            if f.unit:
+                widget.setSuffix(f" {f.unit}")
+            widget.setMinimumHeight(30)
+            setattr(host, f.key, host.field(f.key, widget))
+            widget.valueChanged.connect(lambda _, w=widget: w.setStyleSheet(""))
+
+        # ── combo ─────────────────────────────────────────────────────────
+        elif f.field_type == "combo":
+            widget = QComboBox()
+            widget.addItems(f.options)
+            widget.setMinimumHeight(30)
+            setattr(host, f.key, host.field(f.key, widget))
+            widget.currentIndexChanged.connect(lambda _, w=widget: w.setStyleSheet(""))
+
+        # ── upload_img ────────────────────────────────────────────────────
+        elif f.field_type == "upload_img":
+            container, preview, logo_input = _make_upload_img_widget(
+                host, f.key, f.options
+            )
+            img_previews[f.key] = preview
+            setattr(host, f.key, host.field(f.key, logo_input))
+            layout.addWidget(container)
+
+        else:
+            raise ValueError(
+                f"Unknown field_type {f.field_type!r} for key '{f.key}'. "
+                f"Expected one of: text, textarea, int, float, combo, upload_img."
+            )
+
+        # upload_img adds its own container widget above; all others add here
+        if f.field_type != "upload_img":
+            layout.addWidget(widget)
+
+        if f.required:
+            required_keys.append(f.key)
+
+        host.form.addRow(section)
+
+    return required_keys

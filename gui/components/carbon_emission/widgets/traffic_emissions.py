@@ -1,21 +1,455 @@
-from PySide6.QtWidgets import QDoubleSpinBox, QSpinBox
-from gui.components.base_widget import ScrollableForm
+from PySide6.QtWidgets import (
+    QDoubleSpinBox,
+    QFormLayout,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QWidget,
+)
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
+
+from ...base_widget import ScrollableForm
+from ...utils.form_builder.form_definitions import FieldDef
+from ...utils.form_builder.form_builder import build_form
+from ...utils.remarks_editor import RemarksEditor
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+
+CHUNK = "diversion_emissions"
+TRAFFIC_CHUNK = "traffic_and_road_data"
+BASE_DOCS_URL = "https://yourdocs.com/carbon/traffic/"
+
+_VEHICLES = [
+    ("small_cars", "Small Car"),
+    ("big_cars", "Big Car"),
+    ("two_wheelers", "Two Wheeler"),
+    ("o_buses", "Ordinary Buses"),
+    ("d_buses", "Deluxe Buses"),
+    ("lcv", "LCV"),
+    ("hcv", "HCV"),
+    ("mcv", "MCV"),
+]
+
+DEFAULT_FACTORS: dict[str, float] = {
+    "small_cars": 0.12,
+    "big_cars": 0.20,
+    "two_wheelers": 0.04,
+    "o_buses": 0.55,
+    "d_buses": 0.60,
+    "lcv": 0.30,
+    "hcv": 0.85,
+    "mcv": 0.65,
+}
+
+_MODES = ["Calculate by Vehicle", "Enter Directly"]
+
+DIRECT_FIELDS = [
+    FieldDef(
+        "total_direct_emissions",
+        "Total Diversion Emissions",
+        "Enter the total carbon emissions from traffic diversion directly.",
+        "float",
+        (0.0, 1e12, 4),
+        unit="kgCO2e",
+    ),
+]
+
+# ── Emissions Table ───────────────────────────────────────────────────────────
+
+_COL_VEHICLE = 0
+_COL_VEH_DAY = 1
+_COL_FACTOR = 2
+_COL_EMISSIONS = 3
+
+_YELLOW_BG = QColor(255, 255, 180)
+_YELLOW_FG = QColor(100, 80, 0)
+_NORMAL_BG = QColor(255, 255, 255)
+_NORMAL_FG = QColor(0, 0, 0)
+
+
+class _EmissionsTable(QTableWidget):
+    def __init__(self, on_change, on_total_changed=None, parent=None):
+        super().__init__(len(_VEHICLES), 4, parent)
+        self._on_change = on_change
+        self._on_total_changed = on_total_changed
+        self._reroute_km: float = 0.0
+        self._factors: dict[str, QDoubleSpinBox] = {}
+        self._vpd_items: dict[str, QTableWidgetItem] = {}
+        self._emission_items: dict[str, QTableWidgetItem] = {}
+
+        self.setHorizontalHeaderLabels(
+            [
+                "Vehicle Type",
+                "Vehicles / Day",
+                "Emission Factor\n(kgCO2e/veh-km/day)",
+                "Emissions\n(kgCO2e/day)",
+            ]
+        )
+        self.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.verticalHeader().setVisible(False)
+        self.verticalHeader().setDefaultSectionSize(36)
+        self.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.setSelectionMode(QTableWidget.NoSelection)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+
+        for row, (key, label) in enumerate(_VEHICLES):
+            lbl_item = QTableWidgetItem(label)
+            lbl_item.setFlags(Qt.ItemIsEnabled)
+            self.setItem(row, _COL_VEHICLE, lbl_item)
+
+            vpd_item = QTableWidgetItem("0")
+            vpd_item.setFlags(Qt.ItemIsEnabled)
+            vpd_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.setItem(row, _COL_VEH_DAY, vpd_item)
+            self._vpd_items[key] = vpd_item
+
+            sb = QDoubleSpinBox()
+            sb.setRange(0.0, 9_999.0)
+            sb.setDecimals(4)
+            sb.setButtonSymbols(QDoubleSpinBox.NoButtons)
+            sb.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            sb.valueChanged.connect(self._on_factor_changed)
+            self.setCellWidget(row, _COL_FACTOR, sb)
+            self._factors[key] = sb
+
+            em_item = QTableWidgetItem("0.0000")
+            em_item.setFlags(Qt.ItemIsEnabled)
+            em_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.setItem(row, _COL_EMISSIONS, em_item)
+            self._emission_items[key] = em_item
+
+        self.update_height()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        w = self.viewport().width()
+        self.setColumnWidth(_COL_VEHICLE, int(w * 0.28))
+        self.setColumnWidth(_COL_VEH_DAY, int(w * 0.18))
+        self.setColumnWidth(_COL_FACTOR, int(w * 0.27))
+        self.setColumnWidth(_COL_EMISSIONS, int(w * 0.27))
+
+    def update_height(self):
+        h = self.horizontalHeader().height() or 50
+        for r in range(self.rowCount()):
+            h += self.rowHeight(r)
+        self.setFixedHeight(h + 10)
+
+    def _on_factor_changed(self):
+        self._recalculate()
+        if self._on_total_changed:
+            self._on_total_changed()
+        self._on_change()
+
+    def set_reroute_distance(self, km: float):
+        self._reroute_km = km
+        self._recalculate()
+        if self._on_total_changed:
+            self._on_total_changed()
+
+    def load_vehicles_from_traffic(self, vehicle_data: dict):
+        for row, (key, _) in enumerate(_VEHICLES):
+            vpd = int((vehicle_data.get(key) or {}).get("vehicles_per_day", 0))
+            self._vpd_items[key].setText(str(vpd))
+            self._set_row_zero_state(row, key, vpd == 0)
+        self._recalculate()
+        if self._on_total_changed:
+            self._on_total_changed()
+
+    def load_defaults(self):
+        for key, sb in self._factors.items():
+            sb.blockSignals(True)
+            sb.setValue(DEFAULT_FACTORS.get(key, 0.0))
+            sb.blockSignals(False)
+        self._recalculate()
+        self._on_change()
+
+    def collect_factors(self) -> dict:
+        return {key: sb.value() for key, sb in self._factors.items()}
+
+    def load_factors(self, data: dict):
+        for key, sb in self._factors.items():
+            sb.blockSignals(True)
+            sb.setValue(float(data.get(key, 0.0)))
+            sb.blockSignals(False)
+        self._recalculate()
+
+    def total_emissions(self) -> float:
+        total = 0.0
+        for key, _ in _VEHICLES:
+            vpd = int(self._vpd_items[key].text() or "0")
+            factor = self._factors[key].value()
+            total += vpd * factor * self._reroute_km
+        return total
+
+    def _recalculate(self):
+        for key, _ in _VEHICLES:
+            vpd = int(self._vpd_items[key].text() or "0")
+            factor = self._factors[key].value()
+            em = vpd * factor * self._reroute_km
+            self._emission_items[key].setText(f"{em:.4f}")
+
+    def _set_row_zero_state(self, row: int, key: str, is_zero: bool):
+        bg = _YELLOW_BG if is_zero else _NORMAL_BG
+        fg = _YELLOW_FG if is_zero else _NORMAL_FG
+        for col in range(self.columnCount()):
+            item = self.item(row, col)
+            if item:
+                item.setBackground(bg)
+                item.setForeground(fg)
+        sb = self._factors[key]
+        if is_zero:
+            sb.setStyleSheet(
+                "QDoubleSpinBox { background-color: #ffffb4; color: #644f00; }"
+            )
+        else:
+            sb.setStyleSheet("")
+
+
+# ── Main Widget ───────────────────────────────────────────────────────────────
 
 
 class TrafficEmissions(ScrollableForm):
     def __init__(self, controller=None):
-        super().__init__(controller=controller, chunk_name="carbon_traffic")
+        super().__init__(controller=controller, chunk_name=CHUNK)
+        self._suppress_mode_signal = False
+        self._build_ui()
 
-        self.diverted_vehicles = self.field("diverted_vehicles", QSpinBox(),       min_val=0, max_val=1_000_000)
-        self.detour_length     = self.field("detour_length",     QDoubleSpinBox(), min_val=0, max_val=500,  suffix="km",      decimals=2)
-        self.car_ef            = self.field("car_ef",            QDoubleSpinBox(), min_val=0, max_val=1,    suffix="tCO₂/km", decimals=6, default=0.000192)
-        self.truck_ef          = self.field("truck_ef",          QDoubleSpinBox(), min_val=0, max_val=1,    suffix="tCO₂/km", decimals=6, default=0.000900)
-        self.truck_percent     = self.field("truck_percent",     QDoubleSpinBox(), min_val=0, max_val=100,  suffix="%",       decimals=1)
-        self.work_zone_days    = self.field("work_zone_days",    QSpinBox(),       min_val=0, max_val=3650)
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._load_traffic_context()
 
-        self.form.addRow("Diverted Vehicles/day:",  self.diverted_vehicles)
-        self.form.addRow("Detour Length:",          self.detour_length)
-        self.form.addRow("Car Emission Factor:",    self.car_ef)
-        self.form.addRow("Truck Emission Factor:",  self.truck_ef)
-        self.form.addRow("Truck Percentage:",       self.truck_percent)
-        self.form.addRow("Work Zone Duration:",     self.work_zone_days)
+    # ── UI Construction ───────────────────────────────────────────────────────
+
+    def _build_ui(self):
+        main_form = self.form
+
+        # Build mode combo via form_builder (gives us setattr + field wrapper),
+        # then immediately pop it from _field_map so the base _on_field_changed
+        # never fires for it and never writes a partial dict to the chunk.
+        build_form(
+            self,
+            [FieldDef("mode", "Calculation Mode", "", "combo", options=_MODES)],
+            BASE_DOCS_URL,
+        )
+        self._field_map.pop("mode", None)  # ← prevent base save loop from firing
+
+        self.mode.setFixedWidth(220)
+        self.mode.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        if self.mode.parentWidget():
+            self.mode.parentWidget().setFixedWidth(300)
+            self.mode.parentWidget().setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.mode.currentIndexChanged.connect(self._on_mode_changed)
+        self.mode.setEnabled(False)  # driven by traffic data, not user
+
+        # Warning label
+        self._warning_label = QLabel()
+        self._warning_label.setStyleSheet("color: red;")
+        self._warning_label.setVisible(False)
+        self._warning_label.setWordWrap(True)
+        main_form.addRow(self._warning_label)
+
+        # Stack
+        self._stack = QStackedWidget()
+        self._stack.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+
+        # ── Panel 0: Calculate by Vehicle ─────────────────────────────────────
+        calc_widget = QWidget()
+        calc_layout = QFormLayout(calc_widget)
+        calc_layout.setContentsMargins(0, 0, 0, 0)
+
+        self._reroute_label = QLabel("—")
+        calc_layout.addRow("Reroute Distance (from Traffic Data):", self._reroute_label)
+        calc_layout.addRow(QLabel("<b>Vehicle Emission Factors</b>"))
+
+        self._emissions_table = _EmissionsTable(
+            on_change=self._on_field_changed,
+            on_total_changed=self._refresh_total,
+        )
+        calc_layout.addRow(self._emissions_table)
+
+        self._total_label = QLabel("0.0000")
+        calc_layout.addRow("<b>Total Emissions (kgCO2e/day):</b>", self._total_label)
+
+        btn_defaults = QPushButton("Load Default Factors")
+        btn_defaults.setFixedWidth(160)
+        btn_defaults.setMinimumHeight(30)
+        btn_defaults.clicked.connect(self._on_load_defaults)
+        btn_defaults.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        calc_layout.addRow(btn_defaults)
+
+        self._stack.addWidget(calc_widget)  # index 0
+
+        # ── Panel 1: Enter Directly ───────────────────────────────────────────
+        direct_widget = QWidget()
+        direct_layout = QFormLayout(direct_widget)
+        direct_layout.setContentsMargins(0, 0, 0, 0)
+
+        _temp = self.form
+        self.form = direct_layout
+        build_form(self, DIRECT_FIELDS, BASE_DOCS_URL)
+        self._field_map.pop("total_direct_emissions", None)  # handled in collect_data
+        self.form = _temp
+
+        self._stack.addWidget(direct_widget)  # index 1
+
+        main_form.addRow(self._stack)
+
+        # Remarks
+        self._remarks = RemarksEditor(
+            title="Remarks / Notes", on_change=self._on_field_changed
+        )
+        main_form.addRow(self._remarks)
+
+        # Clear All
+        btn_clear = QPushButton("Clear All")
+        btn_clear.setMinimumHeight(35)
+        btn_clear.setFixedWidth(120)
+        btn_clear.clicked.connect(self.clear_all)
+        btn_clear.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(btn_clear)
+        btn_row.addStretch()
+        btn_widget = QWidget()
+        btn_widget.setLayout(btn_row)
+        btn_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        main_form.addRow(btn_widget)
+
+    # ── Slot Handlers ─────────────────────────────────────────────────────────
+
+    def _on_field_changed(self):
+        """Override base — saves full collect_data() dict, not just _field_map."""
+        if self._loading:
+            return
+        if self.controller and self.controller.engine and self.chunk_name:
+            self.controller.engine.stage_update(
+                chunk_name=self.chunk_name, data=self.collect_data()
+            )
+        self.data_changed.emit()
+
+    def _on_mode_changed(self, idx: int):
+        if self._suppress_mode_signal:
+            return
+        self._stack.setCurrentIndex(idx)
+        self._on_field_changed()
+
+    def _on_load_defaults(self):
+        self._emissions_table.load_defaults()
+        self._refresh_total()
+
+    def _refresh_total(self):
+        self._total_label.setText(f"{self._emissions_table.total_emissions():.4f}")
+
+    def _load_traffic_context(self):
+        if not self.controller or not self.controller.engine:
+            return
+        traffic = self.controller.engine.fetch_chunk(TRAFFIC_CHUNK) or {}
+        reroute = float(traffic.get("additional_reroute_distance_km", 0.0))
+        self._emissions_table.set_reroute_distance(reroute)
+        self._reroute_label.setText(f"{reroute:.3f} km")
+
+        if reroute == 0.0:
+            self._warning_label.setText(
+                "⚠ Reroute distance is 0 km — please fill in the Traffic Data tab first."
+            )
+            self._warning_label.setVisible(True)
+        else:
+            self._warning_label.setVisible(False)
+
+        self._emissions_table.load_vehicles_from_traffic(
+            traffic.get("vehicle_data", {})
+        )
+
+        # Sync mode from traffic data
+        traffic_mode = traffic.get("mode", "India")
+        mapped = (
+            "Enter Directly"
+            if traffic_mode == "Outside India"
+            else "Calculate by Vehicle"
+        )
+        idx = self.mode.findText(mapped)
+        if idx >= 0 and self.mode.currentIndex() != idx:
+            self._suppress_mode_signal = True
+            self.mode.setCurrentIndex(idx)
+            self._stack.setCurrentIndex(idx)
+            self._suppress_mode_signal = False
+
+        self._refresh_total()
+
+    # ── Data Collection ───────────────────────────────────────────────────────
+
+    def collect_data(self) -> dict:
+        return {
+            "mode": self.mode.currentText(),
+            "emission_factors": self._emissions_table.collect_factors(),
+            # "total_calculated_emissions": self._emissions_table.total_emissions(),
+            "total_direct_emissions": (
+                self.total_direct_emissions.value()
+                if hasattr(self, "total_direct_emissions")
+                else 0.0
+            ),
+            "remarks": self._remarks.to_html(),
+        }
+
+    # ── Base Overrides ────────────────────────────────────────────────────────
+
+    def get_data_dict(self) -> dict:
+        return self.collect_data()
+
+    def load_data_dict(self, data: dict):
+        self._load_own_data(data)
+        self._load_traffic_context()
+
+    def refresh_from_engine(self):
+        if not self.controller or not self.controller.engine:
+            return
+        if not self.controller.engine.is_active() or not self.chunk_name:
+            return
+        data = self.controller.engine.fetch_chunk(self.chunk_name)
+        if data:
+            self._load_own_data(data)
+        self._load_traffic_context()
+
+    # ── Data Loading ──────────────────────────────────────────────────────────
+
+    def _load_own_data(self, data: dict):
+        if not data:
+            return
+        self._suppress_mode_signal = True
+        try:
+            self.mode.blockSignals(True)
+            idx = self.mode.findText(data.get("mode", _MODES[0]))
+            self.mode.setCurrentIndex(idx if idx >= 0 else 0)
+            self.mode.blockSignals(False)
+            self._stack.setCurrentIndex(self.mode.currentIndex())
+
+            self._emissions_table.load_factors(data.get("emission_factors", {}))
+
+            if hasattr(self, "total_direct_emissions"):
+                self.total_direct_emissions.blockSignals(True)
+                self.total_direct_emissions.setValue(
+                    float(data.get("total_direct_emissions", 0.0))
+                )
+                self.total_direct_emissions.blockSignals(False)
+
+            self._remarks.from_html(data.get("remarks", ""))
+        finally:
+            self._suppress_mode_signal = False
+
+    # ── Clear All ─────────────────────────────────────────────────────────────
+
+    def clear_all(self):
+        self._emissions_table.load_factors({})
+        if hasattr(self, "total_direct_emissions"):
+            self.total_direct_emissions.blockSignals(True)
+            self.total_direct_emissions.setValue(0.0)
+            self.total_direct_emissions.blockSignals(False)
+        self._remarks.clear_content()
+        self._refresh_total()
+        self._on_field_changed()

@@ -1,4 +1,68 @@
-# gui/main.py
+# Directory structure:
+# └── gui/
+#     ├── main.py
+#     ├── project_controller.py
+#     ├── project_manager.py
+#     ├── project_window.py
+#     ├── assets/
+#     │   └── themes/
+#     │       └── lightstyle.qss
+#     └── components/
+#         ├── base_widget.py
+#         ├── checkpoint_dialog.py
+#         ├── home_page.py
+#         ├── logs.py
+#         ├── new_project_dialog.py
+#         ├── recovery_dialog.py
+#         ├── save_status_bar.py
+#         ├── tamper_dialog.py
+#         ├── bridge_data/
+#         │   └── main.py
+#         ├── carbon_emission/
+#         │   ├── main.py
+#         │   └── widgets/
+#         │       ├── machinery_emissions.py
+#         │       ├── material_emissions.py
+#         │       ├── social_cost.py
+#         │       ├── traffic_emissions.py
+#         │       ├── transport_dialog.py
+#         │       └── transport_emissions.py
+#         ├── demolition/
+#         │   └── main.py
+#         ├── financial_data/
+#         │   └── main.py
+#         ├── global_info/
+#         │   └── main.py
+#         ├── maintenance/
+#         │   └── main.py
+#         ├── recycling/
+#         │   └── main.py
+#         ├── structure/
+#         │   ├── excel_parser.py
+#         │   ├── main.py
+#         │   └── widgets/
+#         │       ├── base_table.py
+#         │       ├── foundation.py
+#         │       ├── manager.py
+#         │       ├── misc_widget.py
+#         │       ├── substructure.py
+#         │       ├── super_structure.py
+#         │       └── trash_tab.py
+#         ├── traffic_data/
+#         │   └── main.py
+#         └── utils/
+#             ├── countries_data.py
+#             ├── definitions.py
+#             ├── remarks_editor.py
+#             ├── unit_resolver.py
+#             └── input_fields/
+#                 ├── add_material.py
+#                 └── config.py
+
+
+
+
+
 import sys
 import os
 from PySide6.QtWidgets import QApplication, QSpinBox, QDoubleSpinBox, QComboBox

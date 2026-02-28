@@ -1,72 +1,95 @@
+"""
+gui/pages/bridge_data.py
+"""
+
 from datetime import date
 
 from PySide6.QtWidgets import (
-    QDoubleSpinBox,
-    QSpinBox,
-    QLineEdit,
     QComboBox,
-    QPushButton,
-    QLabel,
-    QVBoxLayout,
+    QDoubleSpinBox,
     QHBoxLayout,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
     QWidget,
 )
-from PySide6.QtCore import Qt
-from ..utils.countries_data import COUNTRIES
-from gui.components.base_widget import ScrollableForm
+
+
+from ..base_widget import ScrollableForm
+from ..utils.form_builder.form_definitions import FieldDef, Section
+from ..utils.form_builder.form_builder import build_form, _IMG_PREVIEWS_ATTR
+from ..utils.countries_data import CURRENCIES, COUNTRIES
 
 
 BASE_DOCS_URL = "https://yourdocs.com/bridge/"
 
-# (key, title, explanation, field_type, options_or_range, unit, is_required, doc_slug)
-# field_type: "text" | "int" | "float" | "combo"
+
 BRIDGE_FIELDS = [
-    (
+    # ── Identification ───────────────────────────────────────────────────
+    Section("Bridge Identification"),
+    FieldDef(
         "bridge_name",
         "Name of Bridge",
         "The official or commonly used name identifying the bridge.",
         "text",
-        None,
-        "",
-        True,
-        "bridge-name",
+        required=True,
+        doc_slug="bridge-name",
     ),
-    (
+    FieldDef(
         "user_agency",
         "Owner",
         "Name of the owner, client, or responsible agency for this bridge.",
         "text",
-        None,
-        "",
-        True,
-        "user-agency",
+        required=True,
+        doc_slug="user-agency",
     ),
-    (
+    # ── Location ─────────────────────────────────────────────────────────
+    Section("Location"),
+    FieldDef(
         "location_country",
-        "Location — Country",
+        "Country",
         "Country in which the bridge is situated.",
         "combo",
-        COUNTRIES,
-        "",
-        True,
-        "location-country",
+        options=COUNTRIES,
+        required=True,
+        doc_slug="location-country",
     ),
-    (
+    FieldDef(
         "location_address",
-        "Location — Address",
+        "Address",
         "Full address or site description of the bridge location.",
         "text",
-        None,
-        "",
-        False,
-        "location-address",
+        doc_slug="location-address",
     ),
-    (
+    FieldDef(
+        "location_from",
+        "From",
+        "Starting point of the bridge (city, road name, landmark, or coordinates).",
+        "text",
+        doc_slug="location-from",
+    ),
+    FieldDef(
+        "location_via",
+        "Via",
+        "Intermediate feature crossed by the bridge (e.g., river, valley, railway, highway).",
+        "text",
+        doc_slug="location-via",
+    ),
+    FieldDef(
+        "location_to",
+        "To",
+        "Ending point of the bridge (city, road name, landmark, or coordinates).",
+        "text",
+        doc_slug="location-to",
+    ),
+    # ── Technical Specifications ─────────────────────────────────────────
+    Section("Technical Specifications"),
+    FieldDef(
         "bridge_type",
         "Type of Bridge",
         "Structural classification of the bridge (e.g. Girder, Arch, Cable-stayed).",
         "combo",
-        [
+        options=[
             "Girder",
             "Arch",
             "Cable-Stayed",
@@ -76,110 +99,108 @@ BRIDGE_FIELDS = [
             "Slab",
             "Other",
         ],
-        "",
-        True,
-        "bridge-type",
+        required=True,
+        doc_slug="bridge-type",
     ),
-    (
+    FieldDef(
         "span",
         "Span",
         "Total span length of the bridge between supports.",
         "float",
-        (0.0, 99999.0, 2),
-        "(m)",
-        True,
-        "span",
+        options=(0.0, 99999.0, 2),
+        unit="(m)",
+        required=True,
+        doc_slug="span",
     ),
-    (
+    FieldDef(
         "num_lanes",
         "Number of Lanes",
         "Total number of traffic lanes on the bridge deck.",
         "int",
-        (0, 20),
-        "",
-        True,
-        "num-lanes",
+        options=(0, 20),
+        required=True,
+        doc_slug="num-lanes",
     ),
-    (
+    FieldDef(
         "footpath",
         "Footpath",
         "Indicates whether a dedicated pedestrian footpath is provided.",
         "combo",
-        ["Yes", "No"],
-        "",
-        True,
-        "footpath",
+        options=["Yes", "No"],
+        required=True,
+        doc_slug="footpath",
     ),
-    (
+    FieldDef(
         "wind_speed",
         "Wind Speed",
         "Design wind speed used for structural analysis at the bridge site.",
         "float",
-        (0.0, 999.0, 2),
-        "(m/s)",
-        True,
-        "wind-speed",
+        options=(0.0, 999.0, 2),
+        unit="(m/s)",
+        required=True,
+        doc_slug="wind-speed",
     ),
-    (
+    FieldDef(
         "carriageway_width",
         "Carriageway Width",
         "Clear width of the roadway portion of the bridge deck.",
         "float",
-        (0.0, 9999.0, 2),
-        "(m)",
-        True,
-        "carriageway-width",
+        options=(0.0, 9999.0, 2),
+        unit="(m)",
+        required=True,
+        doc_slug="carriageway-width",
     ),
-    (
+    # ── Timeline ─────────────────────────────────────────────────────────
+    Section("Timeline"),
+    FieldDef(
         "year_of_construction",
         "Year of Construction / Present Year",
         "Year the bridge was (or is planned to be) constructed, used as the "
         "baseline for life cycle cost assessment.",
         "int",
-        (1900, 2200),
-        "",
-        True,
-        "year-of-construction",
+        options=(1900, 2200),
+        required=True,
+        doc_slug="year-of-construction",
     ),
-    (
+    FieldDef(
         "duration_construction_months",
         "Duration of Construction",
-        "Construction duration expressed in months (alternative or complement to years).",
+        "Construction duration expressed in months.",
         "int",
-        (0, 1200),
-        "(months)",
-        False,
-        "duration-construction-months",
+        options=(0, 1200),
+        unit="(months)",
+        doc_slug="duration-construction-months",
     ),
-    (
+    FieldDef(
         "working_days_per_month",
         "Working Days per Month",
         "Number of working days assumed per month for scheduling purposes.",
         "int",
-        (0, 31),
-        "(days)",
-        False,
-        "working-days-per-month",
+        options=(0, 31),
+        unit="(days)",
+        doc_slug="working-days-per-month",
     ),
-    (
+    # ── Life Cycle ───────────────────────────────────────────────────────
+    Section("Life Cycle"),
+    FieldDef(
         "design_life",
         "Design Life",
         "Expected operational lifetime of the bridge structure.",
         "int",
-        (0, 999),
-        "(years)",
-        True,
-        "design-life",
+        options=(0, 999),
+        unit="(years)",
+        required=True,
+        doc_slug="design-life",
     ),
-    (
+    FieldDef(
         "service_life",
         "Service Life",
         "Actual or anticipated years the bridge remains in serviceable condition.",
         "int",
-        (0, 999),
-        "(years)",
-        True,
-        "service-life",
+        options=(0, 999),
+        unit="(years)",
+        required=True,
+        doc_slug="service-life",
     ),
 ]
 
@@ -188,90 +209,9 @@ class BridgeData(ScrollableForm):
     def __init__(self, controller=None):
         super().__init__(controller=controller, chunk_name="bridge_data")
 
-        self.required_keys = []
+        self.required_keys = build_form(self, BRIDGE_FIELDS, BASE_DOCS_URL)
 
-        for (
-            key,
-            title,
-            explanation,
-            field_type,
-            options_or_range,
-            unit,
-            is_required,
-            doc_slug,
-        ) in BRIDGE_FIELDS:
-
-            section = QWidget()
-            layout = QVBoxLayout(section)
-            layout.setContentsMargins(0, 10, 0, 10)
-            layout.setSpacing(4)
-
-            # --- Title ---
-            title_label = QLabel(f"{title} *" if is_required else title)
-            title_label.setStyleSheet("font-weight: 600;")
-            layout.addWidget(title_label)
-
-            # --- Explanation with inline docs link ---
-            doc_url = f"{BASE_DOCS_URL}{doc_slug}"
-            explanation_html = (
-                explanation
-                + f' <a href="{doc_url}" style="text-decoration:none;font-weight:600;"> ⓘ</a>'
-            )
-            explanation_label = QLabel(explanation_html)
-            explanation_label.setWordWrap(True)
-            explanation_label.setTextFormat(Qt.RichText)
-            explanation_label.setOpenExternalLinks(True)
-            layout.addWidget(explanation_label)
-
-            # --- Input widget ---
-            if field_type == "text":
-                widget = QLineEdit()
-                widget.setMinimumHeight(30)
-                setattr(self, key, self.field(key, widget))
-                if is_required:
-                    self.required_keys.append(key)
-                widget.textChanged.connect(lambda _, w=widget: w.setStyleSheet(""))
-
-            elif field_type == "int":
-                lo, hi = options_or_range
-                widget = QSpinBox()
-                widget.setRange(lo, hi)
-                if unit:
-                    widget.setSuffix(f" {unit}")
-                widget.setMinimumHeight(30)
-                setattr(self, key, self.field(key, widget))
-                if is_required:
-                    self.required_keys.append(key)
-                widget.valueChanged.connect(lambda _, w=widget: w.setStyleSheet(""))
-
-            elif field_type == "float":
-                lo, hi, decimals = options_or_range
-                widget = QDoubleSpinBox()
-                widget.setRange(lo, hi)
-                widget.setDecimals(decimals)
-                if unit:
-                    widget.setSuffix(f" {unit}")
-                widget.setMinimumHeight(30)
-                setattr(self, key, self.field(key, widget))
-                if is_required:
-                    self.required_keys.append(key)
-                widget.valueChanged.connect(lambda _, w=widget: w.setStyleSheet(""))
-
-            elif field_type == "combo":
-                widget = QComboBox()
-                widget.addItems(options_or_range)
-                widget.setMinimumHeight(30)
-                setattr(self, key, self.field(key, widget))
-                if is_required:
-                    self.required_keys.append(key)
-                widget.currentIndexChanged.connect(
-                    lambda _, w=widget: w.setStyleSheet("")
-                )
-
-            layout.addWidget(widget)
-            self.form.addRow(section)
-
-        # --- Buttons Row ---
+        # ── Buttons row ──────────────────────────────────────────────────
         btn_row = QWidget()
         btn_layout = QHBoxLayout(btn_row)
         btn_layout.setContentsMargins(0, 10, 0, 10)
@@ -285,26 +225,13 @@ class BridgeData(ScrollableForm):
         self.btn_clear_all.setMinimumHeight(35)
         self.btn_clear_all.clicked.connect(self.clear_all)
 
-        btn_layout.addWidget(self.btn_load_suggested)
         btn_layout.addWidget(self.btn_clear_all)
-
         self.form.addRow(btn_row)
 
-    # ------------------------------------------------------------------
-    # Suggested / default values
-    # ------------------------------------------------------------------
+    # ── Suggested values ─────────────────────────────────────────────────
     def load_suggested_values(self):
         defaults = {
-            "bridge_type": "Girder",
-            "footpath": "Yes",
-            "num_lanes": 2,
-            "wind_speed": 33.0,
-            "carriageway_width": 7.5,
             "year_of_construction": date.today().year,
-            "duration_construction_months": 24,
-            "working_days_per_month": 25,
-            "design_life": 100,
-            "service_life": 100,
         }
 
         for key, val in defaults.items():
@@ -326,15 +253,16 @@ class BridgeData(ScrollableForm):
         if self.controller and self.controller.engine:
             self.controller.engine._log("Bridge: Suggested values applied.")
 
-    # ------------------------------------------------------------------
-    # Clear all fields
-    # ------------------------------------------------------------------
+    # ── Clear All ────────────────────────────────────────────────────────
     def clear_all(self):
-        for f in BRIDGE_FIELDS:
-            key = f[0]
-            widget = getattr(self, key, None)
+        for entry in BRIDGE_FIELDS:
+            if isinstance(entry, Section):
+                continue
+
+            widget = getattr(self, entry.key, None)
             if widget is None:
                 continue
+
             if isinstance(widget, QLineEdit):
                 widget.clear()
             elif isinstance(widget, QComboBox):
@@ -348,9 +276,7 @@ class BridgeData(ScrollableForm):
         if self.controller and self.controller.engine:
             self.controller.engine._log("Bridge: All fields cleared.")
 
-    # ------------------------------------------------------------------
-    # Validation
-    # ------------------------------------------------------------------
+    # ── Validation ───────────────────────────────────────────────────────
     def validate(self):
         errors = []
 
@@ -368,7 +294,11 @@ class BridgeData(ScrollableForm):
                 empty = widget.value() <= 0
 
             if empty:
-                label = next(f[1] for f in BRIDGE_FIELDS if f[0] == key)
+                label = next(
+                    f.title
+                    for f in BRIDGE_FIELDS
+                    if isinstance(f, FieldDef) and f.key == key
+                )
                 errors.append(label)
                 widget.setStyleSheet("border: 1px solid red;")
 

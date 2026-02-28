@@ -12,6 +12,7 @@ class ProjectController(QObject):
     fault_occurred = Signal(str)
     dirty_changed = Signal(bool)
     project_loaded = Signal()
+    chunk_updated = Signal(str)  # emits chunk_name after every save
 
     def __init__(self):
         super().__init__()
@@ -28,7 +29,7 @@ class ProjectController(QObject):
         project_id: str,
         is_new: bool = False,
         display_name: str = None,
-        readable: bool = False,
+        readable: bool = True,
     ) -> bool:
         if self.engine:
             self.close_project()
@@ -52,7 +53,6 @@ class ProjectController(QObject):
             self.engine.on_dirty = lambda dirty: self.dirty_changed.emit(dirty)
 
             if is_new:
-                # Initial manual checkpoint so the project has at least one
                 self.engine.create_checkpoint(
                     label="initial",
                     notes="Project created.",
@@ -85,6 +85,7 @@ class ProjectController(QObject):
         """Passes data to the engine's staging area (debounced write)."""
         if self.engine and self.engine.is_active():
             self.engine.stage_update(data, chunk_name)
+            self.chunk_updated.emit(chunk_name)
 
     def get_chunk(self, chunk_name: str) -> dict:
         """Returns chunk data for a widget."""

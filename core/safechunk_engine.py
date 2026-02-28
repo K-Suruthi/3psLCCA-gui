@@ -204,21 +204,50 @@ class SafeChunkEngine:
     # LIFECYCLE
     # --------------------------------------------------------------------------
 
-    def attach(self):
-        """Claims lock, replays WAL, verifies chunk integrity, declares active."""
+    def _write_lock_file(self):
+        try:
+            proc = psutil.Process(os.getpid())
+            create_time = proc.create_time()
+        except Exception:
+            create_time = 0.0
+        self.lock_path.write_text(f"PID: {os.getpid()}\nCREATED: {create_time}")
 
-        # ── Lock check ────────────────────────────────────────────────────────
+    def _is_lock_live(self, lock_path: Path) -> bool:
+        """
+        Returns True only if the lock belongs to a process that is STILL running
+        AND has the same creation time as when the lock was written.
+        Pure PID existence is not enough — PIDs are recycled after power failures.
+        """
+        try:
+            text = lock_path.read_text()
+            pid = int(text.split("PID:")[1].split()[0].strip())
+
+            if not psutil.pid_exists(pid):
+                return False
+
+            # Check creation time to guard against PID recycling
+            stored_created = float(text.split("CREATED:")[1].strip())
+            actual_created = psutil.Process(pid).create_time()
+
+            # Allow 2s tolerance for clock jitter
+            return abs(actual_created - stored_created) < 2.0
+
+        except Exception:
+            # If we can't parse/verify, treat as stale — safer than blocking forever
+            return False
+
+    def attach(self):
         if self.lock_path.exists():
-            try:
-                pid = int(self.lock_path.read_text().split(":")[1].strip())
-                if psutil.pid_exists(pid):
-                    self._engine_active = False
-                    self._log("ATTACH_DENIED: Project is open in another window.")
-                    return
-                self._log(f"Removing stale lock from PID {pid}.")
-                self.lock_path.unlink()
-            except Exception as e:
-                self._log(f"Lock read error: {e}")
+            if self._is_lock_live(self.lock_path):
+                self._engine_active = False
+                self._log("ATTACH_DENIED: Project is open in another window.")
+                return
+            else:
+                self._log("Removing stale lock (process gone or PID recycled).")
+                try:
+                    self.lock_path.unlink()
+                except Exception as e:
+                    self._log(f"Could not remove stale lock: {e}")
 
         try:
             # ── Read existing version.json ────────────────────────────────────
@@ -240,7 +269,7 @@ class SafeChunkEngine:
             self.display_name = final_name
 
             # ── Claim lock ────────────────────────────────────────────────────
-            self.lock_path.write_text(f"PID: {os.getpid()}")
+            self._write_lock_file()
 
             # ── Mark session unclean immediately ──────────────────────────────
             # If we crash before detach(), clean_close stays False on disk
@@ -1113,25 +1142,17 @@ class SafeChunkEngine:
             return None, f"FAILED_TO_CREATE: {e}"
 
     @classmethod
-    def open(
-        cls,
-        project_id: str,
-        base_dir: str = "user_projects",
-        readable: bool = True,
-        **kwargs,
-    ):
-        """Opens an existing project, cleaning stale locks automatically."""
+    def open(cls, project_id, base_dir="user_projects", readable=True, **kwargs):
         root = Path(base_dir)
         if not (root / project_id).exists():
             return None, "PROJECT_NOT_FOUND"
 
         lock = root / project_id / ".lock"
         if lock.exists():
-            try:
-                pid = int(lock.read_text().split(":")[1].strip())
-                if not psutil.pid_exists(pid):
-                    lock.unlink()
-            except Exception:
+            # Use a temporary bare instance just to call the helper
+            tmp = object.__new__(cls)
+            tmp.lock_path = lock
+            if not tmp._is_lock_live(lock):
                 try:
                     lock.unlink()
                 except Exception:
