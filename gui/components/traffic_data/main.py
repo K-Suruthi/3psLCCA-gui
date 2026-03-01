@@ -195,7 +195,7 @@ TRAFFIC_FIELDS = [
         "work_zone_multiplier", "Work Zone Multiplier", "", "float", (0.0, 99.0, 2)
     ),
     Section("Traffic Flow"),
-    FieldDef("num_peak_hours", "Number of Peak Hours", "", "int", (1, 12)),
+    FieldDef("num_peak_hours", "Number of Peak Hours", "", "int", (0, 24)),
 ]
 
 OUTSIDE_INDIA_FIELDS = [
@@ -377,21 +377,28 @@ class _PeakHoursTable(QTableWidget):
             self._on_change()
 
     def _recalculate(self):
-        if self._rebuilding or not self._spinboxes:
+        if self._rebuilding:
             return
+
+        # Current peak total
         total = sum(sb.value() for sb in self._spinboxes)
+
+        # Clamp each spinbox so total never exceeds 100
         for sb in self._spinboxes:
             others = total - sb.value()
             sb.blockSignals(True)
             sb.setMaximum(max(0.0, 100.0 - others))
             sb.blockSignals(False)
 
-        rem = 24 - len(self._spinboxes)
-        avg = (
-            max(0.0, (100.0 - sum(sb.value() for sb in self._spinboxes)) / rem)
-            if rem > 0
-            else 0
-        )
+        # Remaining hours (out of 24)
+        remaining_hours = 24 - len(self._spinboxes)
+
+        # Remaining percentage
+        remaining_percent = max(0.0, 100.0 - total)
+
+        # Average for other hours
+        avg = remaining_percent / remaining_hours if remaining_hours > 0 else 0.0
+
         if self._other_label:
             self._other_label.setText(f"{avg:.2f} %")
 

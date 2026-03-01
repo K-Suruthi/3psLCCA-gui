@@ -220,6 +220,14 @@ class TrafficEmissions(ScrollableForm):
         self._suppress_mode_signal = False
         self._build_ui()
 
+        # Re-run mode check whenever bridge_data or traffic_data changes
+        if self.controller and hasattr(self.controller, "chunk_updated"):
+            self.controller.chunk_updated.connect(self._on_chunk_updated)
+
+    def _on_chunk_updated(self, chunk_name: str):
+        if chunk_name in ("bridge_data", "traffic_and_road_data"):
+            self._load_traffic_context()
+
     def showEvent(self, event):
         super().showEvent(event)
         self._load_traffic_context()
@@ -346,37 +354,47 @@ class TrafficEmissions(ScrollableForm):
     def _refresh_total(self):
         self._total_label.setText(f"{self._emissions_table.total_emissions():.4f}")
 
-
-
     def _load_traffic_context(self):
         if not self.controller or not self.controller.engine:
             return
+
+        # ── Step 1: check country from bridge_data ────────────────────────
+        bridge = self.controller.engine.fetch_chunk("bridge_data") or {}
+        country = str(bridge.get("location_country", "")).strip().upper()
+        is_india = country == "INDIA"
+
+        # ── Step 2: determine target mode ─────────────────────────────────
         traffic = self.controller.engine.fetch_chunk(TRAFFIC_CHUNK) or {}
         reroute = float(traffic.get("additional_reroute_distance_km", 0.0))
+        traffic_mode = str(traffic.get("mode", "")).strip().upper()
+
+        if not is_india:
+            mapped = "Enter Directly"
+        else:
+            mapped = (
+                "Calculate by Vehicle" if traffic_mode == "INDIA" else "Enter Directly"
+            )
+
+        # ── Apply mode ────────────────────────────────────────────────────
+        self._suppress_mode_signal = True
+        idx = self.mode.findText(mapped)
+        if idx >= 0:
+            self.mode.setCurrentIndex(idx)
+            self._stack.setCurrentIndex(idx)
+        self._suppress_mode_signal = False
+
+        # Disable combo when country forces the mode
+        self.mode.setEnabled(is_india)
+
+        # ── Load vehicle data & reroute ───────────────────────────────────
         self._emissions_table.set_reroute_distance(reroute)
         self._reroute_label.setText(f"{reroute:.3f} km")
-
         self._emissions_table.load_vehicles_from_traffic(
             traffic.get("vehicle_data", {})
         )
 
-        # ── Mode sync (must come before warning check) ──
-        traffic_mode = traffic.get("mode", "GLOBAL")
-        print(traffic_mode)
-        mapped = (
-            "Enter Directly"
-            if traffic_mode != "INDIA"
-            else "Calculate by Vehicle"
-        )
-        idx = self.mode.findText(mapped)
-        if idx >= 0:
-            self._suppress_mode_signal = True
-            self.mode.setCurrentIndex(idx)
-            self._stack.setCurrentIndex(idx)
-            self._suppress_mode_signal = False
-
-        # ── Warning (now traffic_mode is defined) ──
-        if reroute == 0.0 and traffic_mode == "INDIA":
+        # ── Warning — only for India + Calculate by Vehicle + no reroute ──
+        if is_india and mapped == "Calculate by Vehicle" and reroute == 0.0:
             self._warning_label.setText(
                 "⚠ Reroute distance is 0 km — please fill in the Traffic Data tab first."
             )
@@ -385,7 +403,6 @@ class TrafficEmissions(ScrollableForm):
             self._warning_label.setVisible(False)
 
         self._refresh_total()
-
 
     # ── Data Collection ───────────────────────────────────────────────────────
 
