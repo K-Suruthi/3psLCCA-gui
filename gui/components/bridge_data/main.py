@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-
 from ..base_widget import ScrollableForm
 from ..utils.form_builder.form_definitions import FieldDef, Section
 from ..utils.form_builder.form_builder import build_form, _IMG_PREVIEWS_ATTR
@@ -46,7 +45,7 @@ BRIDGE_FIELDS = [
     # ── Location ─────────────────────────────────────────────────────────
     Section("Location"),
     FieldDef(
-        "location_country",
+        "project_country",
         "Country",
         "Country in which the bridge is situated.",
         "combo",
@@ -211,21 +210,26 @@ class BridgeData(ScrollableForm):
 
         self.required_keys = build_form(self, BRIDGE_FIELDS, BASE_DOCS_URL)
 
-        # ── Buttons row ──────────────────────────────────────────────────
+        # location_country is set at project creation — lock it
+        _locked = {"location_country"}
+        self.required_keys = [k for k in self.required_keys if k not in _locked]
+        for key in _locked:
+            w = getattr(self, key, None)
+            if w is not None:
+                w.setEnabled(False)
+
+        # ── Buttons row ───────────────────────────────────────────────────
         btn_row = QWidget()
         btn_layout = QHBoxLayout(btn_row)
         btn_layout.setContentsMargins(0, 10, 0, 10)
         btn_layout.setSpacing(10)
-
-        self.btn_load_suggested = QPushButton("Load Suggested Values")
-        self.btn_load_suggested.setMinimumHeight(35)
-        self.btn_load_suggested.clicked.connect(self.load_suggested_values)
 
         self.btn_clear_all = QPushButton("Clear All")
         self.btn_clear_all.setMinimumHeight(35)
         self.btn_clear_all.clicked.connect(self.clear_all)
 
         btn_layout.addWidget(self.btn_clear_all)
+        btn_layout.addStretch()
         self.form.addRow(btn_row)
 
     # ── Suggested values ─────────────────────────────────────────────────

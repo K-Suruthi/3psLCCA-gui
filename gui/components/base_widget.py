@@ -224,7 +224,7 @@ class ScrollableForm(BaseDataWidget):
         # Inner widget holds the form — Fixed vertical policy so it never
         # expands to fill the scroll area (which would stretch the last row down).
         self._content = QWidget()
-        self._content.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self._content.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         self.form = QFormLayout(self._content)
         self.form.setContentsMargins(24, 20, 24, 20)
         self.form.setSpacing(12)

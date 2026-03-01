@@ -114,13 +114,18 @@ GENERAL_FIELDS = [
     # ── Project Settings ─────────────────────────────────────────────────
     Section("Project Settings"),
     FieldDef(
-        "currency",
+        "project_country",
+        "Country",
+        "Country where the bridge project is located. Set at project creation.",
+        "text",
+        doc_slug="project_country",
+    ),
+    FieldDef(
+        "project_currency",
         "Currency",
-        "Currency used for cost figures.",
-        "combo",
-        options=CURRENCIES,
-        required=True,
-        doc_slug="currency",
+        "Currency used for all cost figures. Set at project creation.",
+        "text",
+        doc_slug="project_currency",
     ),
     # FieldDef(
     #     "currency_to_usd_rate",
@@ -139,10 +144,20 @@ class GeneralInfo(ScrollableForm):
 
     created = Signal()
 
+    _LOCKED = {"project_country", "project_currency"}
+
     def __init__(self, controller=None):
         super().__init__(controller=controller, chunk_name="general_info")
 
         self.required_keys = build_form(self, GENERAL_FIELDS, BASE_DOCS_URL)
+
+        # Lock country and currency — disable widget so user can't edit,
+        # but keep in _field_map so get_data_dict() saves them normally
+        self.required_keys = [k for k in self.required_keys if k not in self._LOCKED]
+        for key in self._LOCKED:
+            w = getattr(self, key, None)
+            if w is not None:
+                w.setEnabled(False)
 
         # ── Clear All button ─────────────────────────────────────────────
         btn_row = QWidget()
@@ -161,6 +176,8 @@ class GeneralInfo(ScrollableForm):
         for entry in GENERAL_FIELDS:
             if isinstance(entry, Section):
                 continue
+            if entry.key in self._LOCKED:
+                continue  # never clear country or currency
 
             widget = getattr(self, entry.key, None)
             if widget is None:

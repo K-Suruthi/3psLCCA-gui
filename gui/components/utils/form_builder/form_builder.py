@@ -320,4 +320,43 @@ def build_form(
 
         host.form.addRow(section)
 
+    # ── Patch load_data_dict to restore image previews on project load ───────
+    #
+    # base_widget.load_data_dict only knows about registered QLineEdit/QComboBox
+    # etc. The upload_img preview QLabel is a separate widget it never touches.
+    # We wrap the host's method here so that after the base restore runs, any
+    # base64 strings saved under upload_img keys are decoded and shown in their
+    # preview labels.
+    #
+    _original_load = host.load_data_dict
+
+    def _load_data_dict_with_previews(data: dict) -> None:
+        # 1. Restore all standard fields (including the hidden logo_input QLineEdit)
+        _original_load(data)
+
+        # 2. Restore image previews for any upload_img fields
+        previews: dict[str, QLabel] = getattr(host, _IMG_PREVIEWS_ATTR, {})
+        for key, preview in previews.items():
+            b64 = data.get(key, "")
+            if not b64:
+                preview.setPixmap(QPixmap())
+                preview.setText("No image selected")
+                continue
+            try:
+                img_bytes = base64.b64decode(b64)
+                pixmap = QPixmap()
+                pixmap.loadFromData(img_bytes)
+                if pixmap.isNull():
+                    raise ValueError("QPixmap could not decode image data")
+                scaled = pixmap.scaled(
+                    120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+                preview.setPixmap(scaled)
+                preview.setText("")
+            except Exception:
+                preview.setPixmap(QPixmap())
+                preview.setText("No image selected")
+
+    host.load_data_dict = _load_data_dict_with_previews
+
     return required_keys

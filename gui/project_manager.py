@@ -53,8 +53,10 @@ class ProjectManager:
                 existing.activateWindow()
                 return
 
-        # Ask for display name if new
+        # Ask for details if new
         display_name = None
+        country = None
+        currency = None
         if is_new:
             from gui.components.new_project_dialog import NewProjectDialog
 
@@ -62,6 +64,8 @@ class ProjectManager:
             if dialog.exec() != NewProjectDialog.Accepted:
                 return
             display_name = dialog.get_name()
+            country = dialog.get_country()
+            currency = dialog.get_currency()
 
         # Find or create a window
         target = self._find_empty_window() or self._create_window()
@@ -75,6 +79,26 @@ class ProjectManager:
             success = target.controller.init_project(
                 new_id, is_new=True, display_name=display_name
             )
+            if success:
+                engine = target.controller.engine
+                # Write locked fields into their respective chunks
+                engine.stage_update(
+                    {
+                        "project_name": display_name,
+                        "project_country": country,
+                        "project_currency": currency,
+                    },
+                    "general_info",
+                )
+                engine.stage_update(
+                    {"location_country": country},
+                    "bridge_data",
+                )
+                # Force flush to disk NOW — project_loaded fires on the next
+                # event loop tick (QTimer.singleShot 0) and refresh_from_engine
+                # calls fetch_chunk. Without this the chunks aren't written yet
+                # and the widgets load empty.
+                engine.force_sync()
         elif project_id:
             success = target.controller.init_project(project_id, is_new=False)
 

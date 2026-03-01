@@ -131,7 +131,7 @@ _VEHICLES = [
 ]
 _HAS_PWR = {"hcv", "mcv"}
 
-BRIDGE_CHUNK = "bridge_data"
+GEN_CHUNK = "general_info"
 CHUNK = "traffic_and_road_data"
 BASE_DOCS_URL = "https://yourdocs.com/traffic/"
 
@@ -641,8 +641,9 @@ class TrafficData(ScrollableForm):
     def _sync_mode_from_country(self):
         if not self.controller or not self.controller.engine:
             return
-        bridge = self.controller.engine.fetch_chunk(BRIDGE_CHUNK) or {}
-        country = bridge.get("location_country", "GLOBAL")
+        bridge = self.controller.engine.fetch_chunk(GEN_CHUNK) or {}
+        print(bridge)
+        country = bridge.get("project_country", "GLOBAL")
         is_india = country.strip().upper() == "INDIA"
 
         self.mode.setEnabled(is_india)

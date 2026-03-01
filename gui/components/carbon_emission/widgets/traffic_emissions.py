@@ -22,6 +22,7 @@ from ...utils.remarks_editor import RemarksEditor
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 CHUNK = "diversion_emissions"
+GEN_CHUNK = "general_info"
 TRAFFIC_CHUNK = "traffic_and_road_data"
 BASE_DOCS_URL = "https://yourdocs.com/carbon/traffic/"
 
@@ -96,7 +97,9 @@ class _EmissionsTable(QTableWidget):
         self.verticalHeader().setDefaultSectionSize(36)
         self.setEditTriggers(QTableWidget.NoEditTriggers)
         self.setSelectionMode(QTableWidget.NoSelection)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
         for row, (key, label) in enumerate(_VEHICLES):
             lbl_item = QTableWidgetItem(label)
@@ -124,7 +127,6 @@ class _EmissionsTable(QTableWidget):
             self.setItem(row, _COL_EMISSIONS, em_item)
             self._emission_items[key] = em_item
 
-        self.update_height()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -133,12 +135,6 @@ class _EmissionsTable(QTableWidget):
         self.setColumnWidth(_COL_VEH_DAY, int(w * 0.18))
         self.setColumnWidth(_COL_FACTOR, int(w * 0.27))
         self.setColumnWidth(_COL_EMISSIONS, int(w * 0.27))
-
-    def update_height(self):
-        h = self.horizontalHeader().height() or 50
-        for r in range(self.rowCount()):
-            h += self.rowHeight(r)
-        self.setFixedHeight(h + 10)
 
     def _on_factor_changed(self):
         self._recalculate()
@@ -284,7 +280,13 @@ class TrafficEmissions(ScrollableForm):
             on_change=self._on_field_changed,
             on_total_changed=self._refresh_total,
         )
-        calc_layout.addRow(self._emissions_table)
+
+        table_container = QWidget()
+        table_layout = QHBoxLayout(table_container)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.addWidget(self._emissions_table)
+
+        calc_layout.addRow(table_container)
 
         self._total_label = QLabel("0.0000")
         calc_layout.addRow("<b>Total Emissions (kgCO2e/day):</b>", self._total_label)
@@ -351,20 +353,8 @@ class TrafficEmissions(ScrollableForm):
         self.data_changed.emit()
 
     def _shrink_stack_to_current(self):
-        for i in range(self._stack.count()):
-            w = self._stack.widget(i)
-            if i == self._stack.currentIndex():
-                w.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-                w.adjustSize()
-            else:
-                w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
-        self._stack.setMaximumHeight(
-            self._stack.currentWidget().sizeHint().height()
-            if self._stack.currentWidget()
-            else 16_777_215
-        )
-        self._stack.adjustSize()
-        self._stack.updateGeometry()
+        self._stack.setCurrentIndex(self.mode.currentIndex())
+
 
     def _on_mode_changed(self, idx: int):
         if self._suppress_mode_signal:
@@ -385,11 +375,11 @@ class TrafficEmissions(ScrollableForm):
             return
 
         # ── Load data ─────────────────────────────────────────────────────
-        bridge = self.controller.engine.fetch_chunk("bridge_data") or {}
+        bridge = self.controller.engine.fetch_chunk(GEN_CHUNK) or {}
         traffic = self.controller.engine.fetch_chunk(TRAFFIC_CHUNK) or {}
 
         # ── Extract + normalize values ─────────────────────────────────────
-        raw_country = bridge.get("location_country")
+        raw_country = bridge.get("project_country")
         raw_mode = traffic.get("mode")
 
         country = str(raw_country or "").strip().upper()
@@ -399,16 +389,16 @@ class TrafficEmissions(ScrollableForm):
         is_india = country == "INDIA"
         can_calculate = is_india and traffic_mode == "INDIA"
 
-        # ── Debug Output ───────────────────────────────────────────────────
-        print("==== Traffic Context Debug ====")
-        print(f"bridge_data.location_country (raw) : {raw_country}")
-        print(f"country (normalized)              : {country}")
-        print(f"traffic.mode (raw)                : {raw_mode}")
-        print(f"traffic_mode (normalized)         : {traffic_mode}")
-        print(f"additional_reroute_distance_km    : {reroute}")
-        print(f"is_india                         : {is_india}")
-        print(f"can_calculate                    : {can_calculate}")
-        print("================================")
+        # # ── Debug Output ───────────────────────────────────────────────────
+        # print("==== Traffic Context Debug ====")
+        # print(f"bridge_data.location_country (raw) : {raw_country}")
+        # print(f"country (normalized)              : {country}")
+        # print(f"traffic.mode (raw)                : {raw_mode}")
+        # print(f"traffic_mode (normalized)         : {traffic_mode}")
+        # print(f"additional_reroute_distance_km    : {reroute}")
+        # print(f"is_india                         : {is_india}")
+        # print(f"can_calculate                    : {can_calculate}")
+        # print("================================")
 
         # ── Mode Handling ──────────────────────────────────────────────────
         self._suppress_mode_signal = True
