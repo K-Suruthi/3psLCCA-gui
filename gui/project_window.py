@@ -71,9 +71,9 @@ SIDEBAR_TREE = {
 
 _ACCENT = QColor("#2ecc71")
 _HOVER_ALPHA = 30
-_V_PAD  = 3   # vertical padding per side (increases row height)
-_H_PAD  = 6   # left text indent (pushes text away from accent bar)
-_ACCENT_W = 3 # width of the green left bar in px
+_V_PAD = 3  # vertical padding per side (increases row height)
+_H_PAD = 6  # left text indent (pushes text away from accent bar)
+_ACCENT_W = 3  # width of the green left bar in px
 _SEL_ALPHA = 55  # not padding but affects how "heavy" selection feels
 
 
@@ -383,7 +383,6 @@ class ProjectWindow(QMainWindow):
 
         self.outputs_page = OutputsPage(controller=self.controller)
         self.outputs_page.navigate_requested.connect(self._navigate_to_page)
-        self.outputs_page.btn_calculate.clicked.connect(self._run_calculate)
 
         self.widget_map = {
             "General Information": GeneralInfo(controller=self.controller),
@@ -397,6 +396,8 @@ class ProjectWindow(QMainWindow):
             "Demolition": Demolition(controller=self.controller),
             "Outputs": self.outputs_page,
         }
+
+        self.outputs_page.register_pages(self.widget_map)
 
         for widget in self.widget_map.values():
             self.content_stack.addWidget(widget)
@@ -469,47 +470,11 @@ class ProjectWindow(QMainWindow):
     # ── Calculate ─────────────────────────────────────────────────────────────
 
     def _run_calculate(self):
-        all_errors = {}
-        validation_results = {}  # name -> (has_real_validation, ok)
-
-        for name, widget in self.widget_map.items():
-            if name == "Outputs":
-                continue
-            if not hasattr(widget, "validate"):
-                continue
-            ok, errors = widget.validate()
-            # Distinguish real validation from stub (return True, [])
-            # A stub always returns True with empty errors — we detect real
-            # validation by checking if required_keys exists and is non-empty
-            has_real_validation = bool(getattr(widget, "required_keys", None))
-            validation_results[name] = (has_real_validation, ok)
-            if not ok and errors:
-                all_errors[name] = errors
-
-        self._update_sidebar_colors(validation_results)
-
-        # Navigate to outputs page
+        self.outputs_page.run_validation()
         self.content_stack.setCurrentWidget(self.outputs_page)
         items = self.sidebar.findItems("Outputs", Qt.MatchExactly)
         if items:
             self.sidebar.setCurrentItem(items[0])
-
-        if all_errors:
-            self.outputs_page.show_errors(all_errors)
-        else:
-            self.outputs_page.show_success()
-
-    def _update_sidebar_colors(self, validation_results: dict):
-        """Color sidebar items: red = fail, default = everything else."""
-        RED = QColor("#c0392b")
-
-        for name, (has_real_validation, ok) in validation_results.items():
-            items = self.sidebar.findItems(name, Qt.MatchExactly | Qt.MatchRecursive)
-            for item in items:
-                if has_real_validation and not ok:
-                    item.setForeground(0, RED)
-                else:
-                    item.setForeground(0, self.sidebar.palette().text())
 
     def _navigate_to_page(self, page_name: str):
         """Navigate sidebar + content stack to a named page."""

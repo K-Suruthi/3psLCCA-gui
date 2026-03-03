@@ -19,6 +19,7 @@ from PySide6.QtGui import QPixmap
 from ..base_widget import ScrollableForm
 from ..utils.form_builder.form_definitions import FieldDef, Section
 from ..utils.form_builder.form_builder import build_form, _IMG_PREVIEWS_ATTR
+from ..utils.validation_helpers import clear_field_styles, validate_form
 from ..utils.countries_data import CURRENCIES, COUNTRIES
 
 
@@ -199,24 +200,14 @@ class GeneralInfo(ScrollableForm):
         self._on_field_changed()
 
     # ── Validation ───────────────────────────────────────────────────────
+    def clear_validation(self):
+        clear_field_styles(GENERAL_FIELDS, self)
+
     def validate(self):
-        errors = []
+        return validate_form(GENERAL_FIELDS, self)
 
-        for key in self.required_keys:
-            widget = getattr(self, key, None)
-            if isinstance(widget, QLineEdit) and widget.text().strip() == "":
-                label = next(
-                    f.title
-                    for f in GENERAL_FIELDS
-                    if isinstance(f, FieldDef) and f.key == key
-                )
-                errors.append(label)
-                widget.setStyleSheet("border: 1px solid red;")
-
-        if errors:
-            return False, errors
-
-        return True, []
+    def get_data(self) -> dict:
+        return {"chunk": "general_info", "data": self.get_data_dict()}
 
     def _on_field_changed(self):
         super()._on_field_changed()

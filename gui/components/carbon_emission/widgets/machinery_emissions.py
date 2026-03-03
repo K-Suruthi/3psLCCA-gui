@@ -878,4 +878,8 @@ class MachineryEmissions(ScrollableForm):
         self._apply_currency()
 
     def validate(self):
-        return True, []
+        from gui.components.utils.form_builder.form_definitions import ValidationStatus
+        return ValidationStatus.SUCCESS, []
+
+    def get_data(self) -> dict:
+        return {"chunk": CHUNK, "data": self.get_data_dict()}

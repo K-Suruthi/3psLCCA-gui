@@ -24,12 +24,12 @@ def stamp(db_path: Path):
     for entry in db.get("entries", []):
         data = entry.get("data")
         if data is None:
-            print(f"  [SKIP] Entry '{entry['metadata']['id']}' has no data block.")
+            # print(f"  [SKIP] Entry '{entry['metadata']['id']}' has no data block.")
             continue
         h = compute_hash(data)
         entry["metadata"]["hash"] = h
         stamped += 1
-        print(f"  [OK]   {entry['metadata']['id']} → {h[:32]}...")
+        # print(f"  [OK]   {entry['metadata']['id']} → {h[:32]}...")
 
     with open(db_path, "w", encoding="utf-8") as f:
         json.dump(db, f, indent=2, ensure_ascii=True)

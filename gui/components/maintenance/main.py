@@ -3,18 +3,15 @@ gui/components/maintenance/main.py
 """
 
 from PySide6.QtWidgets import (
-    QComboBox,
-    QDoubleSpinBox,
     QHBoxLayout,
-    QLineEdit,
     QPushButton,
-    QSpinBox,
     QWidget,
 )
 
 from ..base_widget import ScrollableForm
 from ..utils.form_builder.form_definitions import FieldDef, Section
 from ..utils.form_builder.form_builder import build_form
+from ..utils.validation_helpers import clear_field_styles, validate_form
 
 
 BASE_DOCS_URL = "https://yourdocs.com/maintenance/"
@@ -31,16 +28,18 @@ MAINTENANCE_FIELDS = [
         unit="(%)",
         required=True,
         doc_slug="routine-inspection-cost",
+        warn=(0.01, 100.0, "Routine Inspection Cost is 0 — cost will not be included"),
     ),
     FieldDef(
         "routine_inspection_freq",
         "Routine Inspection Frequency",
         "Interval between routine inspections.",
         "int",
-        options=(1, 50),
+        options=(0, 50),
         unit="(yr)",
         required=True,
         doc_slug="routine-inspection-freq",
+        warn=(1, 50, "Routine Inspection Frequency seems unusual — expected between 1 and 50 years"),
     ),
     # ── Periodic Maintenance ─────────────────────────────────────────────
     Section("Periodic Maintenance"),
@@ -49,20 +48,22 @@ MAINTENANCE_FIELDS = [
         "Periodic Maintenance Cost",
         "Cost of periodic maintenance expressed as a percentage of initial construction cost.",
         "float",
-        options=(0.0, 100.0, 2),
+        options=(0.0, 100.0, 1),
         unit="(%)",
         required=True,
         doc_slug="periodic-maintenance-cost",
+        warn=(0.01, 100.0, "Periodic Maintenance Cost is 0 — cost will not be included"),
     ),
     FieldDef(
         "periodic_maintenance_freq",
         "Periodic Maintenance Frequency",
         "Interval between periodic maintenance works.",
         "int",
-        options=(1, 100),
+        options=(0, 100),
         unit="(yr)",
         required=True,
         doc_slug="periodic-maintenance-freq",
+        warn=(1, 100, "Periodic Maintenance Frequency seems unusual — expected between 1 and 100 years"),
     ),
     # ── Major Works ──────────────────────────────────────────────────────
     Section("Major Works"),
@@ -75,36 +76,40 @@ MAINTENANCE_FIELDS = [
         unit="(%)",
         required=True,
         doc_slug="major-inspection-cost",
+        warn=(0.01, 100.0, "Major Inspection Cost is 0 — cost will not be included"),
     ),
     FieldDef(
         "major_inspection_freq",
         "Major Inspection Frequency",
         "Interval between major inspections.",
         "int",
-        options=(1, 100),
+        options=(0, 100),
         unit="(yr)",
         required=True,
         doc_slug="major-inspection-freq",
+        warn=(1, 100, "Major Inspection Frequency seems unusual — expected between 1 and 100 years"),
     ),
     FieldDef(
         "major_repair_cost",
         "Major Repair Cost",
         "Cost of major repair expressed as a percentage of initial construction cost.",
         "float",
-        options=(0.0, 100.0, 2),
+        options=(0.0, 100.0, 1),
         unit="(%)",
         required=True,
         doc_slug="major-repair-cost",
+        warn=(0.01, 100.0, "Major Repair Cost is 0 — cost will not be included"),
     ),
     FieldDef(
         "major_repair_freq",
         "Major Repair Frequency",
         "Interval between major repair works.",
         "int",
-        options=(1, 100),
+        options=(0, 100),
         unit="(yr)",
         required=True,
         doc_slug="major-repair-freq",
+        warn=(1, 100, "Major Repair Frequency seems unusual — expected between 1 and 100 years"),
     ),
     # ── Bearings & Expansion Joints ──────────────────────────────────────
     Section("Bearings & Expansion Joints"),
@@ -117,16 +122,18 @@ MAINTENANCE_FIELDS = [
         unit="(%)",
         required=True,
         doc_slug="bearing-exp-joint-cost",
+        warn=(0.01, 100.0, "Bearing & Expansion Joint Cost is 0 — cost will not be included"),
     ),
     FieldDef(
         "bearing_exp_joint_freq",
         "Bearing & Expansion Joint Repair Frequency",
         "Interval between bearing and expansion joint repair works.",
         "int",
-        options=(1, 100),
+        options=(0, 100),
         unit="(yr)",
         required=True,
         doc_slug="bearing-exp-joint-freq",
+        warn=(1, 100, "Bearing & Expansion Joint Frequency seems unusual — expected between 1 and 100 years"),
     ),
     # ── Strategy ─────────────────────────────────────────────────────────
     Section("Strategy"),
@@ -150,18 +157,6 @@ SUGGESTED_VALUES = {
     "maintenance_strategy": "Preventive",
 }
 
-VALIDATION_RULES = {
-    "routine_inspection_cost": (0.0, 100.0),
-    "routine_inspection_freq": (1, 50),
-    "periodic_maintenance_cost": (0.0, 100.0),
-    "periodic_maintenance_freq": (1, 100),
-    "major_inspection_cost": (0.0, 100.0),
-    "major_inspection_freq": (1, 100),
-    "major_repair_cost": (0.0, 100.0),
-    "major_repair_freq": (1, 100),
-    "bearing_exp_joint_cost": (0.0, 100.0),
-    "bearing_exp_joint_freq": (1, 100),
-}
 
 
 class Maintenance(ScrollableForm):
@@ -232,51 +227,12 @@ class Maintenance(ScrollableForm):
             self.controller.engine._log("Maintenance: All fields cleared.")
 
     # ── Validation ───────────────────────────────────────────────────────
-    def validate(self):
-        errors = []
+    def clear_validation(self):
+        clear_field_styles(MAINTENANCE_FIELDS, self)
 
-        for key in self.required_keys:
-            widget = getattr(self, key, None)
-            if widget is None:
-                continue
+    def validate(self) -> dict:
+        return validate_form(MAINTENANCE_FIELDS, self)
 
-            if isinstance(widget, QComboBox):
-                continue  # always has a selection
+    def get_data(self) -> dict:
+        return {"chunk": "maintenance_data", "data": self.get_data_dict()}
 
-            if isinstance(widget, (QDoubleSpinBox, QSpinBox)):
-                value = widget.value()
-            elif isinstance(widget, QLineEdit):
-                try:
-                    value = float(widget.text())
-                except ValueError:
-                    errors.append(self._field_title(key))
-                    widget.setStyleSheet("border: 1px solid red;")
-                    continue
-            else:
-                continue
-
-            min_val, max_val = VALIDATION_RULES.get(key, (0.0, None))
-            if value < min_val:
-                errors.append(f"{self._field_title(key)} (must be ≥ {min_val})")
-                widget.setStyleSheet("border: 1px solid red;")
-            elif max_val is not None and value > max_val:
-                errors.append(f"{self._field_title(key)} (must be ≤ {max_val})")
-                widget.setStyleSheet("border: 1px solid red;")
-
-        if errors:
-            msg = f"Invalid maintenance data: {', '.join(errors)}"
-            if self.controller and self.controller.engine:
-                self.controller.engine._log(msg)
-            return False, errors
-
-        return True, []
-
-    def _field_title(self, key: str) -> str:
-        return next(
-            (
-                f.title
-                for f in MAINTENANCE_FIELDS
-                if isinstance(f, FieldDef) and f.key == key
-            ),
-            key,
-        )

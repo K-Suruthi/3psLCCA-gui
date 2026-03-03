@@ -1,24 +1,23 @@
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QVBoxLayout,
     QPushButton,
     QWidget,
     QLabel,
     QFormLayout,
     QStackedWidget,
-    QSizePolicy,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 
 from ...base_widget import ScrollableForm
 from ...utils.form_builder.form_definitions import FieldDef, Section
 from ...utils.form_builder.form_builder import build_form
-from ...utils.remarks_editor import RemarksEditor
 
-# ── Constants & Options ───────────────────────────────────────────────────────
+# ── Constants ─────────────────────────────────────────────────────────────────
 
 CHUNK = "social_cost_data"
 GLOBAL_CHUNK = "general_info"
-BASE_DOCS_URL = "https://yourdocs.com/carbon/social-cost/"
+DOCS_URL = "https://yourdocs.com/carbon/social-cost/"
 
 _MODE_NITI = "NITI Aayog"
 _MODE_RICKE = "K. Ricke et al. (Country-Level)"
@@ -63,19 +62,7 @@ HEADER_FIELDS = [
         doc_slug="scc-methodology",
     ),
 ]
-
-VALUE_FIELDS = [
-    FieldDef(
-        "scc_value",
-        "Social Cost of Carbon (SCC)",
-        "The financial cost attributed to 1 kg of CO2e emissions.",
-        "float",
-        options=(0.0, 1e6, 6),
-        unit="Currency/kgCO2e",
-    ),
-]
-
-NITI_CONVERSION_FIELDS = [
+NITI_FIELDS = [
     Section("Regional Valuation Adjustment"),
     FieldDef(
         "inr_to_local_rate",
@@ -86,8 +73,7 @@ NITI_CONVERSION_FIELDS = [
         unit="Currency/INR",
     ),
 ]
-
-SCIENTIFIC_FIELDS = [
+RICKE_FIELDS = [
     Section("Climate & Socioeconomic Scenarios"),
     FieldDef(
         "usd_to_local_rate",
@@ -112,325 +98,332 @@ SCIENTIFIC_FIELDS = [
         options=_RCP_OPTIONS,
     ),
 ]
+CUSTOM_FIELDS = [
+    FieldDef(
+        "scc_value",
+        "Social Cost of Carbon (SCC)",
+        "The financial cost attributed to 1 kg of CO2e emissions.",
+        "float",
+        options=(0.0, 1e6, 6),
+        unit="Currency/kgCO2e",
+    ),
+]
 
-# ── SocialCost Class ──────────────────────────────────────────────────────────
+# ── Widget ────────────────────────────────────────────────────────────────────
 
 
 class SocialCost(ScrollableForm):
     def __init__(self, controller=None):
         super().__init__(controller=controller, chunk_name=CHUNK)
-        self._suppress_signals = False
+        self.__suppress = 0
         self._project_currency = ""
-        self._inr_section = None
+        self._synced = False
         self._build_ui()
 
-    # ── UI Build ──────────────────────────────────────────────────────────────
+    # ── Suppression ───────────────────────────────────────────────────────────
+    # Simple counter so nested suppression scopes don't clobber each other.
+    # Stored as int; the bool property keeps all `if self._suppress_signals:` checks working.
+
+    @property
+    def _suppress_signals(self):
+        return self.__suppress > 0
+
+    @_suppress_signals.setter
+    def _suppress_signals(self, val):
+        # Accept True/False as increment/decrement so existing call-sites work unchanged.
+        if val:
+            self.__suppress += 1
+        else:
+            self.__suppress = max(0, self.__suppress - 1)
+
+    # ── Build UI ──────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        main_form = self.form
+        f = self.form  # main QFormLayout
 
-        # ── Methodology selector ──────────────────────────────────────────────
-        build_form(self, HEADER_FIELDS, BASE_DOCS_URL)
-        self._field_map.pop("source", None)  # prevent base save loop partial write
-        self.source.currentIndexChanged.connect(self._on_source_mode_changed)
+        # Header: methodology selector
+        build_form(self, HEADER_FIELDS, DOCS_URL)
+        self._field_map.pop("source", None)  # managed manually, not via base autosave
+        self.source.currentIndexChanged.connect(self._on_mode_changed)
 
-        # ── Result summary label ──────────────────────────────────────────────
-        self._result_label = QLabel()
-        self._result_label.setWordWrap(True)
-        self._result_label.setTextFormat(Qt.RichText)
-        main_form.addRow(self._result_label)
+        # Effective SCC summary — padded container gives it breathing room
+        # between the combo above and the stack below.
+        _rc, self._result_lbl = self._padded_label(top=10, bottom=6)
+        f.addRow(_rc)
 
-        # ── Stack: one panel per methodology ─────────────────────────────────
+        # Stack — one panel per methodology
         self._stack = QStackedWidget()
-        self._stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        f.addRow(self._stack)
 
-        # ── Panel 0: NITI Aayog ───────────────────────────────────────────────
-        niti_widget = QWidget()
-        niti_layout = QFormLayout(niti_widget)
-        niti_layout.setContentsMargins(0, 0, 0, 0)
-        niti_layout.setSpacing(8)
-        niti_layout.setLabelAlignment(Qt.AlignRight)
+        self._stack.addWidget(self._build_niti_panel())  # index 0
+        self._stack.addWidget(self._build_ricke_panel())  # index 1
+        self._stack.addWidget(self._build_custom_panel())  # index 2
 
-        self._niti_base_label = QLabel(
-            f"Base Value: <b>{NITI_AAYOG_SCC_INR} INR/kgCO2e</b> (NITI Aayog, 2023)"
+        QTimer.singleShot(0, self._fit_stack)
+
+        # Clear button
+        btn = QPushButton("Clear All")
+        btn.setFixedWidth(120)
+        btn.setMinimumHeight(35)
+        btn.setMaximumHeight(35)
+        btn.clicked.connect(self.clear_all)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 4, 0, 0)
+        row.addWidget(btn)
+        row.addStretch()
+        f.addRow(row)
+
+    def _make_panel_layout(self, parent):
+        """Return a QFormLayout on `parent` matching the main form's style."""
+        layout = QFormLayout(parent)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+        layout.setLabelAlignment(Qt.AlignRight)
+        return layout
+
+    def _padded_label(self, text="", top=8, bottom=8):
+        """Wrap a QLabel in a slim container widget so vertical breathing room
+        is controlled by explicit margins, not QFormLayout row stretch."""
+        container = QWidget()
+        vbox = QVBoxLayout(container)
+        vbox.setContentsMargins(0, top, 0, bottom)
+        vbox.setSpacing(0)
+        lbl = QLabel(text)
+        lbl.setTextFormat(Qt.RichText)
+        lbl.setWordWrap(True)
+        vbox.addWidget(lbl)
+        return container, lbl
+
+    def _build_niti_panel(self):
+        w = QWidget()
+        layout = self._make_panel_layout(w)
+
+        _bc, _ = self._padded_label(
+            f"Base Value: <b>{NITI_AAYOG_SCC_INR} INR/kgCO2e</b> (NITI Aayog, 2023)",
+            top=4,
+            bottom=4,
         )
-        self._niti_base_label.setTextFormat(Qt.RichText)
-        niti_layout.addRow(self._niti_base_label)
+        layout.addRow(_bc)
 
-        _temp = self.form
-        self.form = niti_layout
-        build_form(self, NITI_CONVERSION_FIELDS, BASE_DOCS_URL)
-        self._field_map.pop("inr_to_local_rate", None)
-        self.form = _temp
+        # Temporarily point self.form at this sub-layout so build_form adds rows here
+        self.form, _saved = layout, self.form
+        try:
+            build_form(self, NITI_FIELDS, DOCS_URL)
+            self._field_map.pop("inr_to_local_rate", None)
+        finally:
+            self.form = _saved
 
         self.inr_to_local_rate.valueChanged.connect(self._update_niti_result)
 
-        # Store the section container so we can show/hide it cleanly
-        self._inr_section = self.inr_to_local_rate.parentWidget()
+        # Track inr row for show/hide — row was just added, so it's at rowCount-1
+        self._niti_layout = layout
+        self._inr_row = layout.rowCount() - 1
 
-        self._niti_result_lbl = QLabel()
-        self._niti_result_lbl.setTextFormat(Qt.RichText)
-        self._niti_result_lbl.setWordWrap(True)
-        niti_layout.addRow(self._niti_result_lbl)
+        _nrc, self._niti_result_lbl = self._padded_label(top=6, bottom=4)
+        layout.addRow(_nrc)
+        return w
 
-        self._stack.addWidget(niti_widget)  # index 0
+    def _build_ricke_panel(self):
+        w = QWidget()
+        layout = self._make_panel_layout(w)
 
-        # ── Panel 1: Ricke et al. ─────────────────────────────────────────────
-        ricke_widget = QWidget()
-        ricke_layout = QFormLayout(ricke_widget)
-        ricke_layout.setContentsMargins(0, 0, 0, 0)
-        ricke_layout.setSpacing(8)
-        ricke_layout.setLabelAlignment(Qt.AlignRight)
+        self.form, _saved = layout, self.form
+        try:
+            build_form(self, RICKE_FIELDS, DOCS_URL)
+            self._field_map.pop("usd_to_local_rate", None)
+            self._field_map.pop("ssp_scenario", None)
+            self._field_map.pop("rcp_scenario", None)
+        finally:
+            self.form = _saved
 
-        _temp = self.form
-        self.form = ricke_layout
-        build_form(self, SCIENTIFIC_FIELDS, BASE_DOCS_URL)
-        self._field_map.pop("usd_to_local_rate", None)
-        self._field_map.pop("ssp_scenario", None)
-        self._field_map.pop("rcp_scenario", None)
-        self.form = _temp
+        self.usd_to_local_rate.valueChanged.connect(self._update_ricke_result)
+        self.ssp_scenario.currentIndexChanged.connect(self._update_ricke_result)
+        self.rcp_scenario.currentIndexChanged.connect(self._update_ricke_result)
 
-        self.usd_to_local_rate.valueChanged.connect(self._update_scientific_result)
-        self.ssp_scenario.currentIndexChanged.connect(self._update_scientific_result)
-        self.rcp_scenario.currentIndexChanged.connect(self._update_scientific_result)
+        _rrc, self._ricke_result_lbl = self._padded_label(top=6, bottom=4)
+        layout.addRow(_rrc)
+        return w
 
-        self._scientific_result_lbl = QLabel()
-        self._scientific_result_lbl.setTextFormat(Qt.RichText)
-        self._scientific_result_lbl.setWordWrap(True)
-        ricke_layout.addRow(self._scientific_result_lbl)
+    def _build_custom_panel(self):
+        w = QWidget()
+        layout = self._make_panel_layout(w)
 
-        self._stack.addWidget(ricke_widget)  # index 1
-
-        # ── Panel 2: Custom ───────────────────────────────────────────────────
-        custom_widget = QWidget()
-        custom_layout = QFormLayout(custom_widget)
-        custom_layout.setContentsMargins(0, 0, 0, 0)
-        custom_layout.setSpacing(8)
-        custom_layout.setLabelAlignment(Qt.AlignRight)
-
-        _temp = self.form
-        self.form = custom_layout
-        build_form(self, VALUE_FIELDS, BASE_DOCS_URL)
-        self._field_map.pop("scc_value", None)
-        self.form = _temp
+        self.form, _saved = layout, self.form
+        try:
+            build_form(self, CUSTOM_FIELDS, DOCS_URL)
+            self._field_map.pop("scc_value", None)
+        finally:
+            self.form = _saved
 
         self.scc_value.valueChanged.connect(self._on_field_changed)
+        return w
 
-        self._stack.addWidget(custom_widget)  # index 2
+    # ── Stack height ──────────────────────────────────────────────────────────
 
-        main_form.addRow(self._stack)
-        self._shrink_stack()  # set initial height to sizeHint
-
-        # ── Remarks ───────────────────────────────────────────────────────────
-        # self._remarks = RemarksEditor(
-        #     title="Remarks / Notes", on_change=self._on_field_changed
-        # )
-        # main_form.addRow(self._remarks)
-
-        # ── Clear All ─────────────────────────────────────────────────────────
-        btn_clear = QPushButton("Clear All")
-        btn_clear.setMinimumHeight(35)
-        btn_clear.setFixedWidth(120)
-        btn_clear.clicked.connect(self.clear_all)
-        btn_clear.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-
-        btn_row = QHBoxLayout()
-        btn_row.addWidget(btn_clear)
-        btn_row.addStretch()
-        btn_widget = QWidget()
-        btn_widget.setLayout(btn_row)
-        btn_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        main_form.addRow(btn_widget)
-
-    # ── Stack sizing ──────────────────────────────────────────────────────────
-
-    def _shrink_stack(self):
-        """Cap the stack height to its current panel's sizeHint so the scroll
-        area never leaves blank space below the content."""
+    def _fit_stack(self):
+        """Lock the stack to exactly its current panel's natural height."""
         w = self._stack.currentWidget()
-        if w is None:
-            return
-        hint = w.sizeHint().height()
-        self._stack.setMaximumHeight(max(hint, 0))
-        self._stack.updateGeometry()
+        if w:
+            self._stack.setFixedHeight(max(w.sizeHint().height(), 0))
+            self._stack.updateGeometry()
 
-    # ── showEvent ─────────────────────────────────────────────────────────────
+    # ── Mode switching ────────────────────────────────────────────────────────
 
-    def showEvent(self, event):
-        super().showEvent(event)
-        self._sync_with_global_settings()
-
-    # ── Source Mode ───────────────────────────────────────────────────────────
-
-    def _on_source_mode_changed(self, _idx: int = 0):
+    def _on_mode_changed(self, _idx=0):
         if self._suppress_signals:
             return
         mode = self.source.currentText()
+
+        # Release the fixed height BEFORE the panel swap — otherwise Qt stretches
+        # the new (shorter) panel's rows to fill the old panel's locked height.
+        self._stack.setMaximumHeight(16777215)
+        self._stack.setMinimumHeight(0)
+
         if _MODE_NITI in mode:
             self._stack.setCurrentIndex(0)
             self._update_niti_result()
         elif _MODE_RICKE in mode:
             self._stack.setCurrentIndex(1)
-            self._update_scientific_result()
+            self._update_ricke_result()
         else:
             self._stack.setCurrentIndex(2)
-        self._shrink_stack()
-        self._on_field_changed()
+            self._on_field_changed()
 
-    # ── Result Calculations ───────────────────────────────────────────────────
+        QTimer.singleShot(0, self._fit_stack)
 
-    def _toggle_inr_field(self):
-        """Hide INR conversion row when project currency is already INR."""
-        if self._inr_section:
-            self._inr_section.setVisible(self._project_currency != "INR")
+    # ── Calculations ──────────────────────────────────────────────────────────
+
+    def _toggle_inr_row(self):
+        self._niti_layout.setRowVisible(self._inr_row, self._project_currency != "INR")
 
     def _update_niti_result(self):
         if self._suppress_signals:
             return
-        currency = self._project_currency or "INR"
-        rate = self.inr_to_local_rate.value() if currency != "INR" else 1.0
-        local_value = NITI_AAYOG_SCC_INR * rate
+        cur = self._project_currency or "INR"
+        rate = self.inr_to_local_rate.value() if cur != "INR" else 1.0
+        val = NITI_AAYOG_SCC_INR * rate
         self._niti_result_lbl.setText(
             f"NITI Aayog Base: <b>{NITI_AAYOG_SCC_INR} INR/kgCO2e</b><br/>"
-            f"Adjusted Local Cost: <b>{local_value:.6f} {currency}/kgCO2e</b>"
+            f"Adjusted Local Cost: <b>{val:.6f} {cur}/kgCO2e</b>"
         )
-        self._update_result_label(local_value)
+        self._set_result(val)
         self._on_field_changed()
 
-    def _update_scientific_result(self):
+    def _update_ricke_result(self):
         if self._suppress_signals:
             return
         ssp = self.ssp_scenario.currentText()
         rcp = self.rcp_scenario.currentText()
-        usd_base = _RICKE_SCC_TABLE.get((ssp, rcp), 0.0)
-        rate = self.usd_to_local_rate.value()
-        local_value = usd_base * rate
-        currency = self._project_currency or "USD"
-
-        if usd_base == 0:
-            self._scientific_result_lbl.setText(
+        base = _RICKE_SCC_TABLE.get((ssp, rcp), 0.0)
+        val = base * self.usd_to_local_rate.value()
+        cur = self._project_currency or "USD"
+        if base == 0:
+            self._ricke_result_lbl.setText(
                 "<i>Scenario combination not found in Ricke et al. table.</i>"
             )
-            self._update_result_label(0.0)
+            self._set_result(0.0)
         else:
-            self._scientific_result_lbl.setText(
-                f"Scenario Baseline: <b>${usd_base:.4f} USD/kg</b><br/>"
-                f"Adjusted Local Cost: <b>{local_value:.6f} {currency}/kgCO2e</b>"
+            self._ricke_result_lbl.setText(
+                f"Scenario Baseline: <b>${base:.4f} USD/kg</b><br/>"
+                f"Adjusted Local Cost: <b>{val:.6f} {cur}/kgCO2e</b>"
             )
-            self._update_result_label(local_value)
+            self._set_result(val)
         self._on_field_changed()
 
-    def _update_result_label(self, value: float):
-        currency = self._project_currency or ""
-        self._result_label.setText(
-            f"<b>Effective SCC: {value:.6f} {currency}/kgCO2e</b>"
-        )
+    def _set_result(self, value):
+        cur = self._project_currency or ""
+        self._result_lbl.setText(f"<b>Effective SCC: {value:.6f} {cur}/kgCO2e</b>")
 
-    # ── Global Sync ───────────────────────────────────────────────────────────
+    # ── Global sync ───────────────────────────────────────────────────────────
 
     def _sync_with_global_settings(self):
         if not self.controller or not self.controller.engine:
             return
+        info = self.controller.engine.fetch_chunk(GLOBAL_CHUNK) or {}
+        self._project_currency = info.get("currency", "INR")
+        rate_usd = float(info.get("currency_to_usd_rate", 1.0))
 
-        global_info = self.controller.engine.fetch_chunk(GLOBAL_CHUNK) or {}
-        self._project_currency = global_info.get("currency", "INR")
-        rate_to_usd = float(global_info.get("currency_to_usd_rate", 1.0))
-
-        # Update unit suffixes
         self.usd_to_local_rate.setSuffix(f" {self._project_currency}/USD")
         self.inr_to_local_rate.setSuffix(f" {self._project_currency}/INR")
         self.scc_value.setSuffix(f" {self._project_currency}/kgCO2e")
 
-        # Auto-fill conversion rates from global info
-        if rate_to_usd > 0:
-            self._suppress_signals = True
-            self.usd_to_local_rate.setValue(1.0 / rate_to_usd)
-            self._suppress_signals = False
-
+        self._suppress_signals = True
+        if rate_usd > 0:
+            self.usd_to_local_rate.setValue(1.0 / rate_usd)
         if self._project_currency == "INR":
-            self._suppress_signals = True
             self.inr_to_local_rate.setValue(1.0)
-            self._suppress_signals = False
+        self._suppress_signals = False
 
-        # Show/hide INR conversion field based on currency
-        self._toggle_inr_field()
+        self._toggle_inr_row()
+        self._on_mode_changed()
 
-        # Re-trigger current mode's calculation with updated rates
-        self._on_source_mode_changed()
+    # ── Data ──────────────────────────────────────────────────────────────────
 
-    # ── Data Collection ───────────────────────────────────────────────────────
-
-    def collect_data(self) -> dict:
-        currency = self._project_currency
+    def collect_data(self):
+        cur = self._project_currency
         mode = self.source.currentText()
 
-        # NITI
-        niti_rate = 1.0 if currency == "INR" else self.inr_to_local_rate.value()
-        niti_local_value = NITI_AAYOG_SCC_INR * niti_rate
-        niti_data = {
-            "base_value_inr": NITI_AAYOG_SCC_INR,
-            "inr_to_local_rate": niti_rate,
-            "cost_local": round(niti_local_value, 6),
-            "currency": currency,
-        }
+        niti_rate = 1.0 if cur == "INR" else self.inr_to_local_rate.value()
+        niti_val = NITI_AAYOG_SCC_INR * niti_rate
 
-        # Ricke
         ssp = self.ssp_scenario.currentText()
         rcp = self.rcp_scenario.currentText()
         usd_base = _RICKE_SCC_TABLE.get((ssp, rcp), 0.0)
-        usd_to_local = self.usd_to_local_rate.value()
-        ricke_local_value = usd_base * usd_to_local
-        ricke_data = {
-            "ssp": ssp,
-            "rcp": rcp,
-            "base_value_usd": usd_base,
-            "usd_to_local_rate": usd_to_local,
-            "cost_local": round(ricke_local_value, 6),
-            "currency": currency,
-        }
+        usd_rate = self.usd_to_local_rate.value()
+        ricke_val = usd_base * usd_rate
 
-        # Custom
-        custom_value = self.scc_value.value()
-        custom_data = {
-            "entered_value": custom_value,
-            "currency": currency,
-            "unit": f"{currency}/kgCO2e",
-        }
+        custom_val = self.scc_value.value()
 
-        # Final result
-        if _MODE_NITI in mode:
-            final_value = niti_local_value
-        elif _MODE_RICKE in mode:
-            final_value = ricke_local_value
-        else:
-            final_value = custom_value
-
-        result_data = {
-            "methodology": mode,
-            "cost_of_carbon_local": round(final_value, 6),
-            "currency": currency,
-            "unit": f"{currency}/kgCO2e",
-            "scientific_params": {
-                "ssp": ssp,
-                "rcp": rcp,
-                "usd_to_local_rate": usd_to_local,
-            },
-        }
+        final = (
+            niti_val
+            if _MODE_NITI in mode
+            else ricke_val if _MODE_RICKE in mode else custom_val
+        )
 
         return {
             "source": mode,
-            "niti": niti_data,
-            "ricke": ricke_data,
-            "custom": custom_data,
-            "result": result_data,
-            # "remarks": self._remarks.to_html(),
+            "niti": {
+                "base_value_inr": NITI_AAYOG_SCC_INR,
+                "inr_to_local_rate": niti_rate,
+                "cost_local": round(niti_val, 6),
+                "currency": cur,
+            },
+            "ricke": {
+                "ssp": ssp,
+                "rcp": rcp,
+                "base_value_usd": usd_base,
+                "usd_to_local_rate": usd_rate,
+                "cost_local": round(ricke_val, 6),
+                "currency": cur,
+            },
+            "custom": {
+                "entered_value": custom_val,
+                "currency": cur,
+                "unit": f"{cur}/kgCO2e",
+            },
+            "result": {
+                "methodology": mode,
+                "cost_of_carbon_local": round(final, 6),
+                "currency": cur,
+                "unit": f"{cur}/kgCO2e",
+                "scientific_params": {
+                    "ssp": ssp,
+                    "rcp": rcp,
+                    "usd_to_local_rate": usd_rate,
+                },
+            },
         }
 
-    # ── Base Overrides ────────────────────────────────────────────────────────
+    # ── Base overrides ────────────────────────────────────────────────────────
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._synced:
+            self._synced = True
+            self._sync_with_global_settings()
 
     def _on_field_changed(self):
-        """Override base — saves full collect_data(), not just _field_map."""
-        if self._loading:
+        if self._loading or self._suppress_signals:
             return
         if self.controller and self.controller.engine and self.chunk_name:
             self.controller.engine.stage_update(
@@ -438,11 +431,8 @@ class SocialCost(ScrollableForm):
             )
         self.data_changed.emit()
 
-    def get_data_dict(self) -> dict:
+    def get_data_dict(self):
         return self.collect_data()
-
-    def load_data_dict(self, data: dict):
-        self._load_own_data(data)
 
     def refresh_from_engine(self):
         if not self.controller or not self.controller.engine:
@@ -451,70 +441,58 @@ class SocialCost(ScrollableForm):
             return
         data = self.controller.engine.fetch_chunk(self.chunk_name)
         if data:
-            self._load_own_data(data)
+            self.load_data_dict(data)
         self._sync_with_global_settings()
 
-    # ── Data Loading ──────────────────────────────────────────────────────────
-
-    def _load_own_data(self, data: dict):
+    def load_data_dict(self, data):
         if not data:
             return
-        self._suppress_signals = True
+        self._loading = True
         try:
-            # Source/mode
             self.source.blockSignals(True)
             idx = self.source.findText(data.get("source", _MODE_NITI))
             self.source.setCurrentIndex(idx if idx >= 0 else 0)
             self.source.blockSignals(False)
 
-            # NITI fields
             niti = data.get("niti", {})
             self.inr_to_local_rate.blockSignals(True)
             self.inr_to_local_rate.setValue(float(niti.get("inr_to_local_rate", 1.0)))
             self.inr_to_local_rate.blockSignals(False)
 
-            # Ricke fields
             ricke = data.get("ricke", {})
             self.usd_to_local_rate.blockSignals(True)
             self.usd_to_local_rate.setValue(float(ricke.get("usd_to_local_rate", 1.0)))
             self.usd_to_local_rate.blockSignals(False)
 
             self.ssp_scenario.blockSignals(True)
-            ssp_idx = self.ssp_scenario.findText(ricke.get("ssp", _SSP_OPTIONS[0]))
-            self.ssp_scenario.setCurrentIndex(ssp_idx if ssp_idx >= 0 else 0)
+            i = self.ssp_scenario.findText(ricke.get("ssp", _SSP_OPTIONS[0]))
+            self.ssp_scenario.setCurrentIndex(i if i >= 0 else 0)
             self.ssp_scenario.blockSignals(False)
 
             self.rcp_scenario.blockSignals(True)
-            rcp_idx = self.rcp_scenario.findText(ricke.get("rcp", _RCP_OPTIONS[0]))
-            self.rcp_scenario.setCurrentIndex(rcp_idx if rcp_idx >= 0 else 0)
+            i = self.rcp_scenario.findText(ricke.get("rcp", _RCP_OPTIONS[0]))
+            self.rcp_scenario.setCurrentIndex(i if i >= 0 else 0)
             self.rcp_scenario.blockSignals(False)
 
-            # Custom
             custom = data.get("custom", {})
             self.scc_value.blockSignals(True)
             self.scc_value.setValue(float(custom.get("entered_value", 0.0)))
             self.scc_value.blockSignals(False)
-
-            # Remarks
-            # self._remarks.from_html(data.get("remarks", ""))
-
         finally:
-            self._suppress_signals = False
+            self._loading = False
 
-        # Sync stack and recalculate for the loaded mode
-        self._on_source_mode_changed()
-
-    # ── Clear All ─────────────────────────────────────────────────────────────
+        # Sync stack to loaded mode — suppressed so it doesn't trigger a save
+        self._suppress_signals = True
+        self._on_mode_changed()
+        self._suppress_signals = False
 
     def clear_all(self):
         self._suppress_signals = True
-        self.source.setCurrentIndex(0)
         self.inr_to_local_rate.setValue(1.0)
         self.usd_to_local_rate.setValue(1.0)
         self.ssp_scenario.setCurrentIndex(0)
         self.rcp_scenario.setCurrentIndex(0)
         self.scc_value.setValue(0.0)
-        # self._remarks.clear_content()
         self._suppress_signals = False
-        self._on_source_mode_changed()
+        self._on_mode_changed()
         self._on_field_changed()

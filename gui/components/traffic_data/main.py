@@ -23,8 +23,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from ..base_widget import ScrollableForm
-from ..utils.form_builder.form_definitions import FieldDef, Section
+from ..utils.form_builder.form_definitions import FieldDef, Section, ValidationStatus
 from ..utils.form_builder.form_builder import build_form
+from ..utils.validation_helpers import clear_field_styles, validate_form
 from ..utils.remarks_editor import RemarksEditor
 from ..utils.wpi_manager import WPIManager, WPIProfile
 from .wpi_table import _WPITable
@@ -145,6 +146,7 @@ TRAFFIC_FIELDS = [
         "Lane configuration of the alternate route — auto-fills capacity and width.",
         "combo",
         options=_LANE_NAMES,
+        required=True,
     ),
     FieldDef(
         "carriage_width_in_m",
@@ -153,19 +155,41 @@ TRAFFIC_FIELDS = [
         "float",
         (0.0, 999.0, 2),
         unit="m",
+        required=True,
     ),
     FieldDef(
-        "hourly_capacity", "Hourly Capacity", "", "int", (0, 99999), unit="veh/hr"
+        "hourly_capacity",
+        "Hourly Capacity",
+        "",
+        "int",
+        (0, 99999),
+        unit="veh/hr",
+        required=True,
     ),
     Section("Accident Severity Distribution"),
     FieldDef(
-        "severity_minor", "Minor Injury", "", "float", (0.0, 100.0, 2), unit="(%)"
+        "severity_minor",
+        "Minor Injury",
+        "",
+        "float",
+        (0.0, 100.0, 2),
+        unit="(%)",
     ),
     FieldDef(
-        "severity_major", "Major Injury", "", "float", (0.0, 100.0, 2), unit="(%)"
+        "severity_major",
+        "Major Injury",
+        "",
+        "float",
+        (0.0, 100.0, 2),
+        unit="(%)",
     ),
     FieldDef(
-        "severity_fatal", "Fatal Accident", "", "float", (0.0, 100.0, 2), unit="(%)"
+        "severity_fatal",
+        "Fatal Accident",
+        "",
+        "float",
+        (0.0, 100.0, 2),
+        unit="(%)",
     ),
     Section("Road Parameters"),
     FieldDef(
@@ -173,14 +197,30 @@ TRAFFIC_FIELDS = [
         "Road Roughness",
         "",
         "float",
-        (0.0, 99_999.0, 2),
+        (2000.0, 99_999.0, 2),
         unit="(mm/km)",
+        required=True,
+        warn=(0.01, 10000.0, "Road Roughness is 0 or unusually high — please verify the value"),
     ),
     FieldDef(
-        "road_rise_m_per_km", "Road Rise", "", "float", (0.0, 9_999.0, 3), unit="(m/km)"
+        "road_rise_m_per_km",
+        "Road Rise",
+        "",
+        "float",
+        (0.0, 9_999.0, 3),
+        unit="(m/km)",
+        required=True,
+        warn=(0.01, 9_999.0, "Road Rise is 0 or unusually high — please verify the value"),
     ),
     FieldDef(
-        "road_fall_m_per_km", "Road Fall", "", "float", (0.0, 9_999.0, 3), unit="(m/km)"
+        "road_fall_m_per_km",
+        "Road Fall",
+        "",
+        "float",
+        (0.0, 9_999.0, 3),
+        unit="(m/km)",
+        required=True,
+        warn=(0.01, 9_999.0, "Road Fall is 0 or unusually high — please verify the value"),
     ),
     FieldDef(
         "additional_reroute_distance_km",
@@ -189,6 +229,7 @@ TRAFFIC_FIELDS = [
         "float",
         (0.0, 9_999.0, 3),
         unit="(km)",
+        warn=(0.01, 1000, "Additional Reroute Distance is 0 or unusually high — please verify the value"),
     ),
     FieldDef(
         "additional_travel_time_min",
@@ -197,6 +238,7 @@ TRAFFIC_FIELDS = [
         "float",
         (0.0, 9_999.0, 3),
         unit="(min)",
+        warn=(0.01, 1000, "Additional Travel Time is 0 or unusually high — please verify the value"),
     ),
     FieldDef(
         "crash_rate_accidents_per_million_km",
@@ -205,13 +247,25 @@ TRAFFIC_FIELDS = [
         "float",
         (0.0, 999_999.0, 2),
         unit="(acc / M km)",
+        required=True,
+        warn=(0.01, 1000, "Crash Rate is 0 or unusually high — please verify the value"),
     ),
     FieldDef(
-        "work_zone_multiplier", "Work Zone Multiplier", "", "float", (0.0, 99.0, 2)
+        "work_zone_multiplier",
+        "Work Zone Multiplier",
+        "",
+        "float",
+        (0.0, 99.0, 2),
+        required=True,
     ),
     Section("Traffic Flow"),
-    FieldDef("num_peak_hours", "Number of Peak Hours", "", "int", (0, 24)),
+    FieldDef(
+        "num_peak_hours", "Number of Peak Hours", "", "int", (0, 24),
+        required=True,
+        warn=(1, 24, "Number of Peak Hours must be between 1 and 24"),
+    ),
 ]
+
 
 OUTSIDE_INDIA_FIELDS = [
     FieldDef(
@@ -642,7 +696,7 @@ class TrafficData(ScrollableForm):
         if not self.controller or not self.controller.engine:
             return
         bridge = self.controller.engine.fetch_chunk(GEN_CHUNK) or {}
-        print(bridge)
+        # print(bridge)
         country = bridge.get("project_country", "GLOBAL")
         is_india = country.strip().upper() == "INDIA"
 
@@ -830,6 +884,54 @@ class TrafficData(ScrollableForm):
             self._wpi_table.set_editable(first.is_custom)
         self.blockSignals(False)
         self._on_field_changed()
+
+    # ── Validation / data export ──────────────────────────────────────────────
+
+    def clear_validation(self):
+        clear_field_styles(TRAFFIC_FIELDS, self)
+        clear_field_styles(OUTSIDE_INDIA_FIELDS, self)
+
+    def validate(self) -> dict:
+        mode = self.mode.currentText()
+
+        if mode == "INDIA":
+            result = validate_form(TRAFFIC_FIELDS, self)
+            errors = result["errors"]
+            warnings = result["warnings"]
+
+            if not errors:
+                # At least one vehicle must have traffic data for IS SP30 to compute
+                vehicle_data = self._vehicle_table.collect_to_dict()
+                total_vpd = sum(v["vehicles_per_day"] for v in vehicle_data.values())
+                if total_vpd == 0:
+                    warnings.append("No vehicle traffic data — all vehicles per day are 0")
+
+                # Severity distribution must sum to 100% when there is traffic
+                total_sev = (
+                    self.severity_minor.value()
+                    + self.severity_major.value()
+                    + self.severity_fatal.value()
+                )
+                if total_vpd != 0 and round(total_sev, 2) != 100.0:
+                    errors.append(
+                        f"Accident severity must sum to 100% — currently {total_sev:.1f}%"
+                    )
+
+        else:  # GLOBAL — road user cost entered directly, not computed via IS SP30
+            result = validate_form(OUTSIDE_INDIA_FIELDS, self)
+            errors = result["errors"]
+            warnings = result["warnings"]
+
+            if self.road_user_cost_per_day.value() <= 0:
+                warnings.append(
+                    "Road User Cost per Day is 0 — road user cost will not be included"
+                )
+                self.road_user_cost_per_day.setStyleSheet("border: 1px solid orange;")
+
+        return {"errors": errors, "warnings": warnings}
+
+    def get_data(self) -> dict:
+        return {"chunk": CHUNK, "data": self.collect_data()}
 
     # ── Base overrides ────────────────────────────────────────────────────────
 

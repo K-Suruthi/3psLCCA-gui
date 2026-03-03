@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from ..base_widget import ScrollableForm
 from ..utils.form_builder.form_definitions import FieldDef, Section
 from ..utils.form_builder.form_builder import build_form, _IMG_PREVIEWS_ATTR
+from ..utils.validation_helpers import clear_field_styles, validate_form
 from ..utils.countries_data import CURRENCIES, COUNTRIES
 
 
@@ -286,35 +287,11 @@ class BridgeData(ScrollableForm):
             self.controller.engine._log("Bridge: All fields cleared.")
 
     # ── Validation ───────────────────────────────────────────────────────
+    def clear_validation(self):
+        clear_field_styles(BRIDGE_FIELDS, self, skip_keys=self._LOCKED)
+
     def validate(self):
-        errors = []
+        return validate_form(BRIDGE_FIELDS, self, skip_keys=self._LOCKED)
 
-        for key in self.required_keys:
-            widget = getattr(self, key, None)
-            if widget is None:
-                continue
-
-            empty = False
-            if isinstance(widget, QLineEdit):
-                empty = widget.text().strip() == ""
-            elif isinstance(widget, QComboBox):
-                empty = False  # always has a selection
-            else:
-                empty = widget.value() <= 0
-
-            if empty:
-                label = next(
-                    f.title
-                    for f in BRIDGE_FIELDS
-                    if isinstance(f, FieldDef) and f.key == key
-                )
-                errors.append(label)
-                widget.setStyleSheet("border: 1px solid red;")
-
-        if errors:
-            msg = f"Missing required bridge data: {', '.join(errors)}"
-            if self.controller and self.controller.engine:
-                self.controller.engine._log(msg)
-            return False, errors
-
-        return True, []
+    def get_data(self) -> dict:
+        return {"chunk": "bridge_data", "data": self.get_data_dict()}

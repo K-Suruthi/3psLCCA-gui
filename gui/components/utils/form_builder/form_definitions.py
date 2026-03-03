@@ -32,7 +32,14 @@ Field types
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
+
+
+class ValidationStatus(str, Enum):
+    ERROR = "error"
+    WARNING = "warning"
+    SUCCESS = "success"
 
 
 @dataclass
@@ -83,3 +90,4 @@ class FieldDef:
     unit: str = ""
     required: bool = False
     doc_slug: str = ""
+    warn: tuple | None = None  # (low, high) or (low, high, msg) or (low, high, low_msg, high_msg)

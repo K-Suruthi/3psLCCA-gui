@@ -45,6 +45,35 @@ class CarbonEmissionTabView(QWidget):
 
         main_layout.addWidget(self.tab_view)
 
+    def validate(self):
+        from gui.components.utils.form_builder.form_definitions import ValidationStatus
+        all_errors = []
+        all_warnings = []
+        for i in range(self.tab_view.count()):
+            tab = self.tab_view.widget(i)
+            if not hasattr(tab, "validate"):
+                continue
+            status, issues = tab.validate()
+            name = self.tab_view.tabText(i)
+            if status == ValidationStatus.ERROR:
+                all_errors.extend(f"{name}: {msg}" for msg in issues)
+            elif status == ValidationStatus.WARNING:
+                all_warnings.extend(f"{name}: {msg}" for msg in issues)
+        if all_errors:
+            return ValidationStatus.ERROR, all_errors
+        if all_warnings:
+            return ValidationStatus.WARNING, all_warnings
+        return ValidationStatus.SUCCESS, []
+
+    def get_data(self) -> dict:
+        data = {}
+        for i in range(self.tab_view.count()):
+            tab = self.tab_view.widget(i)
+            if hasattr(tab, "get_data"):
+                result = tab.get_data()
+                data[result["chunk"]] = result["data"]
+        return {"chunk": "carbon_emission_data", "data": data}
+
     def select_tab(self, name):
         tabs = [
             "Material Emissions",

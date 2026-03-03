@@ -221,14 +221,21 @@ class ScrollableForm(BaseDataWidget):
     def __init__(self, controller=None, chunk_name: str = None):
         super().__init__(controller=controller, chunk_name=chunk_name)
 
-        # Inner widget holds the form — Fixed vertical policy so it never
-        # expands to fill the scroll area (which would stretch the last row down).
         self._content = QWidget()
-        self._content.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        # Fixed vertical policy: _content never grows beyond its sizeHint.
+        # Preferred/Minimum still allow the scroll area to push extra height
+        # into the QFormLayout rows, producing visible gaps between fields.
+        self._content.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
         self.form = QFormLayout(self._content)
         self.form.setContentsMargins(24, 20, 24, 20)
         self.form.setSpacing(12)
         self.form.setLabelAlignment(Qt.AlignRight)
+        # Stop QFormLayout distributing leftover vertical space into rows.
+        # build_form() wraps every field in a single-column QWidget row —
+        # without this, those rows absorb extra height as padding gaps.
+        self.form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        self.form.setRowWrapPolicy(QFormLayout.DontWrapRows)
 
         # Wrap in scroll area.
         # No QSS — use palette propagation instead.

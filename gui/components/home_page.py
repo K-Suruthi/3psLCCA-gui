@@ -130,7 +130,7 @@ class ProjectCardDelegate(QStyledItemDelegate):
         name_font.setBold(True)
         painter.setFont(name_font)
         painter.setPen(text_col)
-        print(data)
+        # print(data)
         name = (data.get("display_name") or "Unnamed") if data else "Unnamed"
         name_fm = painter.fontMetrics()
         name_text = name_fm.elidedText(name, Qt.ElideRight, text_maxw)

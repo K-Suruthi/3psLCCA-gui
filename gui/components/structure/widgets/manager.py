@@ -272,9 +272,9 @@ class MaterialDialog(QDialog):
         self.carbon_denom_cb.wheelEvent = lambda event: event.ignore()
         for category, units in _CONSTRUCTION_UNITS.units.items():
             for code, info in units.items():
-                print(info)
+                # print(info)
                 display = f"{info['name'].split(',')[-1].strip()}"
-                print(display)
+                # print(display)
                 self.carbon_denom_cb.addItem(display, userData=code)
                 idx = self.carbon_denom_cb.count() - 1
                 self.carbon_denom_cb.setItemData(

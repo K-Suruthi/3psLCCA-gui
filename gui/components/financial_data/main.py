@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 from ..base_widget import ScrollableForm
 from ..utils.form_builder.form_definitions import FieldDef, Section
 from ..utils.form_builder.form_builder import build_form
+from ..utils.validation_helpers import clear_field_styles, validate_form
 
 
 BASE_DOCS_URL = "https://yourdocs.com/financial/"
@@ -161,26 +162,11 @@ class FinancialData(ScrollableForm):
 
     # ── Validation ────────────────────────────────────────────────────────────
 
+    def clear_validation(self):
+        clear_field_styles(FINANCIAL_FIELDS, self)
+
     def validate(self):
-        errors = []
+        return validate_form(FINANCIAL_FIELDS, self)
 
-        for key in self.required_keys:
-            widget = getattr(self, key, None)
-            if widget is None:
-                continue
-            if isinstance(widget, (QDoubleSpinBox, QSpinBox)) and widget.value() <= 0:
-                label = next(
-                    f.title
-                    for f in FINANCIAL_FIELDS
-                    if isinstance(f, FieldDef) and f.key == key
-                )
-                errors.append(label)
-                widget.setStyleSheet("border: 1px solid red;")
-
-        if errors:
-            msg = f"Missing required financial data: {', '.join(errors)}"
-            if self.controller and self.controller.engine:
-                self.controller.engine._log(msg)
-            return False, errors
-
-        return True, []
+    def get_data(self) -> dict:
+        return {"chunk": "financial_data", "data": self.get_data_dict()}

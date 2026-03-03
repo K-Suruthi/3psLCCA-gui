@@ -585,6 +585,13 @@ class Recycling(QWidget):
             except Exception:
                 pass
 
+    def validate(self):
+        from gui.components.utils.form_builder.form_definitions import ValidationStatus
+        return ValidationStatus.SUCCESS, []
+
+    def get_data(self) -> dict:
+        return {"chunk": "recycling_data", "data": {}}
+
     def showEvent(self, event):
         super().showEvent(event)
         self.on_refresh()

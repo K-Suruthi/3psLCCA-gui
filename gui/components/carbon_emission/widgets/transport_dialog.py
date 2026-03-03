@@ -100,7 +100,7 @@ class VehicleRouteStep(QWidget):
 
                 presets = DEFAULT_VEHICLES
             except ImportError as e:
-                print(f"[TransportDialog] Could not load DEFAULT_VEHICLES: {e}")
+                # print(f"[TransportDialog] Could not load DEFAULT_VEHICLES: {e}")
                 presets = {}
 
                 presets = DEFAULT_VEHICLES

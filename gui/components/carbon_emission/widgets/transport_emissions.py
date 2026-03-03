@@ -298,7 +298,7 @@ class VehicleCard(QGroupBox):
         table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
 
         for mat in mat_results:
-            print(f"[DEBUG] mat: {mat}")  # ← add this
+            # print(f"[DEBUG] mat: {mat}")
             row = table.rowCount()
             table.insertRow(row)
             status = mat.get("status", "ok")
