@@ -1,0 +1,183 @@
+"""
+gui/components/structure/registry/custom_material_db.py
+
+SQLite-backed store for user-created custom material databases.
+Multiple logical databases live in a single file, distinguished by
+the db_name column (e.g. "biharSOR-2026", "My Materials").
+"""
+
+import sqlite3
+import datetime
+from pathlib import Path
+
+_DB_PATH = Path(__file__).parent / "custom_materials.db"
+CUSTOM_PREFIX = "custom::"
+
+
+class CustomMaterialDB:
+    """
+    Thin wrapper around a single SQLite file that stores custom SOR-style
+    materials.  Each 'logical database' the user creates is just a distinct
+    value in the db_name column — no separate files needed.
+    """
+
+    def __init__(self, path: Path = _DB_PATH):
+        self._path = path
+        self._ensure_schema()
+
+    # ── Internal ──────────────────────────────────────────────────────────
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _ensure_schema(self):
+        with self._connect() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS custom_materials (
+                    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    db_name                     TEXT    NOT NULL,
+                    name                        TEXT    NOT NULL,
+                    unit                        TEXT,
+                    rate                        REAL,
+                    rate_src                    TEXT,
+                    carbon_emission             TEXT,
+                    carbon_emission_units_den   TEXT,
+                    conversion_factor           TEXT,
+                    recycleable                 TEXT,
+                    material_type               TEXT,
+                    grade                       TEXT,
+                    created_at                  TEXT DEFAULT (datetime('now')),
+                    updated_at                  TEXT DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_db_name "
+                "ON custom_materials(db_name)"
+            )
+
+    # ── Queries ───────────────────────────────────────────────────────────
+
+    def list_db_names(self) -> list:
+        """Return all distinct custom database names, sorted."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT db_name FROM custom_materials ORDER BY db_name"
+            ).fetchall()
+        return [r["db_name"] for r in rows]
+
+    def get_items(self, db_name: str) -> list:
+        """Return all materials in *db_name* as SOR-compatible item dicts."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT name, unit, rate, rate_src,
+                       carbon_emission, carbon_emission_units_den,
+                       conversion_factor, recycleable, material_type
+                FROM   custom_materials
+                WHERE  db_name = ?
+                ORDER  BY name
+                """,
+                (db_name,),
+            ).fetchall()
+        db_key = f"{CUSTOM_PREFIX}{db_name}"
+        return [
+            {
+                "name":                      r["name"],
+                "unit":                      r["unit"] or "",
+                "rate":                      r["rate"] if r["rate"] is not None else "not_available",
+                "rate_src":                  r["rate_src"] or "",
+                "carbon_emission":           r["carbon_emission"] or "not_available",
+                "carbon_emission_units_den": r["carbon_emission_units_den"] or "not_available",
+                "conversion_factor":         r["conversion_factor"] or "not_available",
+                "recycleable":               r["recycleable"] or "",
+                "type":                      r["material_type"] or "",
+                "db_key":                    db_key,
+            }
+            for r in rows
+        ]
+
+    # ── Mutations ─────────────────────────────────────────────────────────
+
+    def save_material(self, db_name: str, values: dict):
+        """
+        Insert or update a material in *db_name*.
+        *values* is the dict returned by MaterialDialog.get_values().
+        Existing row with the same (db_name, name) is updated in-place.
+        """
+        now = datetime.datetime.now().isoformat()
+        name = (values.get("material_name") or "").strip()
+        if not name:
+            raise ValueError("material_name must not be empty")
+
+        carbon_unit = values.get("carbon_unit", "")
+        denom = carbon_unit.split("/")[-1].strip() if "/" in carbon_unit else ""
+
+        carbon_em = values.get("carbon_emission", None)
+        carbon_em_str = str(carbon_em) if carbon_em else "not_available"
+
+        cf = values.get("conversion_factor", None)
+        cf_str = str(cf) if cf else "not_available"
+
+        recycleable = "Recyclable" if values.get("is_recyclable") else "Non-recyclable"
+
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT id FROM custom_materials WHERE db_name=? AND name=?",
+                (db_name, name),
+            ).fetchone()
+
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE custom_materials SET
+                        unit=?, rate=?, rate_src=?,
+                        carbon_emission=?, carbon_emission_units_den=?,
+                        conversion_factor=?, recycleable=?,
+                        material_type=?, grade=?, updated_at=?
+                    WHERE db_name=? AND name=?
+                    """,
+                    (
+                        values.get("unit", ""),
+                        values.get("rate") or None,
+                        values.get("rate_source", ""),
+                        carbon_em_str, denom, cf_str, recycleable,
+                        values.get("type", ""), values.get("grade", ""),
+                        now, db_name, name,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO custom_materials
+                        (db_name, name, unit, rate, rate_src,
+                         carbon_emission, carbon_emission_units_den,
+                         conversion_factor, recycleable,
+                         material_type, grade, created_at, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        db_name, name,
+                        values.get("unit", ""),
+                        values.get("rate") or None,
+                        values.get("rate_source", ""),
+                        carbon_em_str, denom, cf_str, recycleable,
+                        values.get("type", ""), values.get("grade", ""),
+                        now, now,
+                    ),
+                )
+
+    def delete_material(self, db_name: str, name: str):
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM custom_materials WHERE db_name=? AND name=?",
+                (db_name, name),
+            )
+
+    def delete_db(self, db_name: str):
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM custom_materials WHERE db_name=?",
+                (db_name,),
+            )

@@ -486,6 +486,28 @@ class SocialCost(ScrollableForm):
         self._on_mode_changed()
         self._suppress_signals = False
 
+    def validate(self) -> dict:
+        data = self.collect_data()
+        warnings = []
+        scc = data.get("result", {}).get("cost_of_carbon_local", 0.0)
+        if scc == 0.0:
+            mode = data.get("source", "")
+            if _MODE_RICKE in mode:
+                warnings.append(
+                    "Social Cost of Carbon is 0 — the selected SSP/RCP combination "
+                    "may not exist in the Ricke et al. table."
+                )
+            elif _MODE_CUSTOM in mode:
+                warnings.append(
+                    "Social Cost of Carbon is 0 — enter a custom SCC value."
+                )
+            else:
+                warnings.append("Social Cost of Carbon is 0.")
+        return {"errors": [], "warnings": warnings}
+
+    def get_data(self) -> dict:
+        return {"chunk": CHUNK, "data": self.collect_data()}
+
     def clear_all(self):
         self._suppress_signals = True
         self.inr_to_local_rate.setValue(1.0)

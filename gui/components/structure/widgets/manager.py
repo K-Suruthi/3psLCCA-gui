@@ -13,8 +13,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QCheckBox,
     QComboBox,
+    QCompleter,
 )
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl, QStringListModel
 from PySide6.QtGui import QDoubleValidator, QDesktopServices, QStandardItemModel, QStandardItem
 import time
 import uuid
@@ -283,6 +284,246 @@ class CustomUnitDialog(QDialog):
 
 
 # ---------------------------------------------------------------------------
+# Material suggestion loader  — reads from the SOR registry
+# ---------------------------------------------------------------------------
+
+# Maps SOR unit codes (lowercased) → dropdown data codes.
+# Only needed for cases where the SOR spelling differs from the dropdown key.
+_SOR_UNIT_ALIASES: dict[str, str] = {
+    "rmt": "rm",   # Running Metre Tape  → rm (running metre)
+    "lmt": "rm",   # Linear Metre        → rm
+    "sqmt": "sqm", # Square Metre (alt)  → sqm
+    "t":   "tonne",# Short 't'           → tonne
+}
+
+
+def _resolve_unit_code(sor_unit: str, combo: "QComboBox") -> int:
+    """
+    Find the QComboBox row whose UserRole data matches `sor_unit`.
+    1. Try exact match (handles 'cum', 'm2', 'kg' …).
+    2. Try lowercase match (handles 'MT' → 'mt').
+    3. Try alias table (handles 'RMT' / 'Rmt' → 'rm').
+    Returns the index, or -1 if not found.
+    """
+    # 1. Exact
+    idx = combo.findData(sor_unit)
+    if idx >= 0:
+        return idx
+
+    # 2. Lowercase
+    lower = sor_unit.lower()
+    idx = combo.findData(lower)
+    if idx >= 0:
+        return idx
+
+    # 3. Alias table
+    alias = _SOR_UNIT_ALIASES.get(lower)
+    if alias:
+        idx = combo.findData(alias)
+        if idx >= 0:
+            return idx
+
+    return -1
+
+
+def _registry_dir() -> str:
+    import os
+    return os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'registry')
+    )
+
+
+def _ensure_registry_on_path():
+    import sys
+    d = _registry_dir()
+    if d not in sys.path:
+        sys.path.insert(0, d)
+
+
+def _list_sor_options(country: str = None) -> list[dict]:
+    """
+    Return all OK SOR databases for *country* (case-insensitive),
+    plus any custom databases the user has created.
+    Each entry: {"db_key": str, "region": str, "label": str}
+    Falls back to all OK databases when country is blank/None.
+    """
+    _ensure_registry_on_path()
+    result = []
+    try:
+        from db_registry import list_databases
+        raw = list_databases(country=country.strip() if country else None)
+        for e in raw:
+            if e.get("status") != "OK":
+                continue
+            region = e.get("region", "")
+            label = f"{e['db_key']}  ({region})" if region else e["db_key"]
+            result.append({"db_key": e["db_key"], "region": region, "label": label})
+    except Exception as ex:
+        print(f"[MaterialDialog] Could not list SOR options: {ex}")
+
+    # Append user-created custom databases
+    try:
+        from ..registry.custom_material_db import CustomMaterialDB, CUSTOM_PREFIX
+        cdb = CustomMaterialDB()
+        for db_name in cdb.list_db_names():
+            result.append({
+                "db_key": f"{CUSTOM_PREFIX}{db_name}",
+                "region": "Custom",
+                "label": f"{db_name}  (Custom)",
+            })
+    except Exception as ex:
+        print(f"[MaterialDialog] Could not list custom databases: {ex}")
+
+    return result
+
+
+def _list_sor_types(db_keys: list = None) -> list[str]:
+    """Return sorted unique 'type' values from the specified SOR databases."""
+    _ensure_registry_on_path()
+    try:
+        from search_engine import MaterialSearchEngine
+        engine = MaterialSearchEngine(db_keys=db_keys)
+        return sorted({
+            item.get("type", "").strip()
+            for item in engine._iter_items()
+            if item.get("type", "").strip()
+        })
+    except Exception:
+        return []
+
+
+def _load_material_suggestions(db_keys: list = None, comp_name: str = None) -> dict:
+    """
+    Load material items from the SOR registry and any custom databases.
+    db_keys  : restrict to these db_keys; None = all databases (built-in + custom).
+    comp_name: filter to items whose 'type' matches (case-insensitive substring).
+               Falls back to all items if nothing matches.
+    Returns dict: { name: item_dict }
+    """
+    _ensure_registry_on_path()
+
+    # Split db_keys into built-in SOR keys and custom:: keys
+    if db_keys is not None:
+        regular_keys = [k for k in db_keys if not k.startswith("custom::")]
+        custom_names = [k[len("custom::"):] for k in db_keys if k.startswith("custom::")]
+        load_all_custom = False
+    else:
+        regular_keys = None          # None → MaterialSearchEngine loads everything
+        custom_names = []
+        load_all_custom = True
+
+    result = {}
+    comp_lower = comp_name.strip().lower() if comp_name else None
+
+    # ── Built-in SOR databases ────────────────────────────────────────────
+    # Skip if caller explicitly passed only custom keys
+    skip_regular = (db_keys is not None and not regular_keys)
+    if not skip_regular:
+        try:
+            from search_engine import MaterialSearchEngine
+            engine = MaterialSearchEngine(db_keys=regular_keys)
+
+            if comp_lower:
+                for item in engine._iter_items():
+                    t = item.get('type', '').lower()
+                    if t == comp_lower or comp_lower in t or t in comp_lower:
+                        name = item.get('name', '').strip()
+                        if name:
+                            result[name] = item
+                # Fallback: no type match → load everything from built-in DBs
+                if not result:
+                    for item in engine._iter_items():
+                        name = item.get('name', '').strip()
+                        if name:
+                            result[name] = item
+            else:
+                for item in engine._iter_items():
+                    name = item.get('name', '').strip()
+                    if name:
+                        result[name] = item
+        except Exception as e:
+            print(f"[MaterialDialog] Could not load material suggestions: {e}")
+
+    # ── Custom databases ──────────────────────────────────────────────────
+    if load_all_custom or custom_names:
+        try:
+            from ..registry.custom_material_db import CustomMaterialDB
+            cdb = CustomMaterialDB()
+            names_to_load = cdb.list_db_names() if load_all_custom else custom_names
+            for db_name in names_to_load:
+                for item in cdb.get_items(db_name):
+                    name = item.get("name", "").strip()
+                    if not name:
+                        continue
+                    if comp_lower:
+                        t = item.get("type", "").lower()
+                        if not (t == comp_lower or comp_lower in t or t in comp_lower):
+                            continue
+                    result[name] = item
+        except Exception as e:
+            print(f"[MaterialDialog] Could not load custom material suggestions: {e}")
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# _SaveToCustomDBDialog
+# ---------------------------------------------------------------------------
+
+
+class _SaveToCustomDBDialog(QDialog):
+    """
+    Small dialog that lets the user pick an existing custom database or
+    type a new name, then confirm saving the current material to it.
+    """
+
+    def __init__(self, existing_db_names: list, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Save to Custom Database")
+        self.setMinimumWidth(360)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 16, 20, 16)
+
+        layout.addWidget(QLabel(
+            "Select an existing database or type a new name\n"
+            "(e.g. biharSOR-2026, MyMaterials):"
+        ))
+
+        self.db_combo = QComboBox()
+        self.db_combo.setEditable(True)
+        self.db_combo.setMinimumHeight(32)
+        self.db_combo.addItems(existing_db_names)
+        self.db_combo.setCurrentIndex(-1)
+        if self.db_combo.lineEdit():
+            self.db_combo.lineEdit().setPlaceholderText("e.g. biharSOR-2026")
+        layout.addWidget(self.db_combo)
+
+        btn_row = QHBoxLayout()
+        save_btn = QPushButton("Save")
+        save_btn.setDefault(True)
+        save_btn.setMinimumHeight(32)
+        save_btn.clicked.connect(self._on_save)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setMinimumHeight(32)
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(save_btn)
+        btn_row.addWidget(cancel_btn)
+        layout.addLayout(btn_row)
+
+    def _on_save(self):
+        if not self.selected_name():
+            QMessageBox.warning(self, "Missing Name", "Please enter a database name.")
+            return
+        self.accept()
+
+    def selected_name(self) -> str:
+        return self.db_combo.currentText().strip()
+
+
+# ---------------------------------------------------------------------------
 # MaterialDialog
 # ---------------------------------------------------------------------------
 
@@ -290,11 +531,16 @@ class CustomUnitDialog(QDialog):
 class MaterialDialog(QDialog):
     _CUSTOM_CODE = "__custom__"
 
-    def __init__(self, comp_name: str, parent=None, data: dict = None, emissions_only: bool = False, recyclability_only: bool = False):
+    def __init__(self, comp_name: str, parent=None, data: dict = None, emissions_only: bool = False, recyclability_only: bool = False, country: str = None):
         super().__init__(parent)
         self.is_edit = data is not None
         self.emissions_only = emissions_only
         self.recyclability_only = recyclability_only
+        self._comp_name = comp_name          # used to filter SOR by type
+        self._sor_item = None                # SOR item that was last auto-filled
+        self._is_customized = False          # user edited fields after SOR fill
+        self._sor_filling = False            # block "custom" flag during auto-fill
+        self._is_modified_by_user = False    # user explicitly unlocked and edited DB-filled fields
         mat_name = (data.get("values", {}).get("material_name", "") if data else "") or comp_name
         if recyclability_only:
             self.setWindowTitle(f"Edit Recyclability — {mat_name}")
@@ -337,12 +583,66 @@ class MaterialDialog(QDialog):
         scroll.setWidget(inner)
         outer.addWidget(scroll)
 
+        # ── SOR selector (shown above material name so user picks DB first) ──
+        self._sor_options = (
+            _list_sor_options(country)
+            if not (emissions_only or recyclability_only)
+            else []
+        )
+        self.sor_cb = None
+        if self._sor_options:
+            sor_row = QHBoxLayout()
+            sor_row.setContentsMargins(0, 0, 0, 0)
+            sor_row.setSpacing(8)
+            sor_lbl = QLabel("Suggestions from:")
+            sor_lbl.setStyleSheet("font-size: 11px; color: #555;")
+            sor_row.addWidget(sor_lbl)
+            self.sor_cb = QComboBox()
+            self.sor_cb.setMinimumHeight(26)
+            self.sor_cb.wheelEvent = lambda event: event.ignore()
+            if len(self._sor_options) > 1:
+                self.sor_cb.addItem("All databases", None)
+            for opt in self._sor_options:
+                self.sor_cb.addItem(opt["label"], opt["db_key"])
+            sor_row.addWidget(self.sor_cb, stretch=1)
+            root.addLayout(sor_row)
+
+        # ── Sub-category (SOR type) filter ────────────────────────────────
+        self.type_filter_cb = None
+        if self._sor_options:
+            sub_row = QHBoxLayout()
+            sub_row.setContentsMargins(0, 0, 0, 0)
+            sub_row.setSpacing(8)
+            sub_lbl = QLabel("Sub-category:")
+            sub_lbl.setStyleSheet("font-size: 11px; color: #555;")
+            sub_row.addWidget(sub_lbl)
+            self.type_filter_cb = QComboBox()
+            self.type_filter_cb.setMinimumHeight(26)
+            self.type_filter_cb.wheelEvent = lambda event: event.ignore()
+            sub_row.addWidget(self.type_filter_cb, stretch=1)
+            root.addLayout(sub_row)
+            self._populate_type_filter(preselect=comp_name)
+            self.type_filter_cb.currentIndexChanged.connect(self._on_type_filter_changed)
+
         # ── Material Name ─────────────────────────────────────────────────
         root.addWidget(_lbl("Material Name *"))
         self.name_in = QLineEdit(v.get("material_name", ""))
         self.name_in.setPlaceholderText("e.g. Ready-mix Concrete M25")
         self.name_in.setMinimumHeight(32)
         root.addWidget(self.name_in)
+
+        # ── Completer (wired after name_in exists) ────────────────────────
+        self._suggestions = {}
+        self._active_completer = None
+        self._reload_suggestions()
+        if self.sor_cb:
+            self.sor_cb.currentIndexChanged.connect(self._on_sor_changed)
+
+        # ── Allow-edit checkbox (always visible; enabled after a DB suggestion is picked) ──
+        self._allow_edit_chk = QCheckBox("Allow editing DB-filled values")
+        self._allow_edit_chk.setEnabled(False)
+        self._allow_edit_chk.toggled.connect(self._on_allow_edit_toggled)
+        root.addWidget(self._allow_edit_chk)
 
         # ── Quantity + Unit (same row) ────────────────────────────────────
         qty_unit_row = QHBoxLayout()
@@ -598,9 +898,15 @@ class MaterialDialog(QDialog):
         self.cancel_btn.setMinimumHeight(34)
         self.cancel_btn.clicked.connect(self.reject)
 
+        self.custom_db_btn = QPushButton("Save to Custom DB…")
+        self.custom_db_btn.setMinimumHeight(34)
+        self.custom_db_btn.setToolTip("Save this material to a user-created custom database")
+        self.custom_db_btn.clicked.connect(self._on_save_to_custom_db)
+
         btn_layout.addWidget(self.save_btn)
         btn_layout.addWidget(self.cancel_btn)
         btn_layout.addStretch()
+        btn_layout.addWidget(self.custom_db_btn)
         outer.addWidget(btn_bar)
 
         # ── Freeze non-emission fields in emissions_only mode ─────────────
@@ -633,7 +939,252 @@ class MaterialDialog(QDialog):
         self.conv_factor_in.textChanged.connect(self._update_formula_preview)
         self.qty_in.textChanged.connect(self._update_formula_preview)
 
+        # ── Detect manual edits after SOR auto-fill ───────────────────────
+        for _w in (self.name_in, self.qty_in, self.rate_in, self.src_in,
+                   self.carbon_em_in, self.conv_factor_in,
+                   self.scrap_in, self.recycling_perc_in, self.grade_in):
+            _w.textChanged.connect(self._on_field_manually_changed)
+        self.unit_in.currentIndexChanged.connect(self._on_field_manually_changed)
+        self.carbon_denom_cb.currentIndexChanged.connect(self._on_field_manually_changed)
+        self.type_in.currentIndexChanged.connect(self._on_field_manually_changed)
+
         self._update_cf()
+
+    # ── SOR / suggestion helpers ──────────────────────────────────────────
+
+    def _reload_suggestions(self):
+        """Rebuild the completer from the currently selected SOR database and sub-category."""
+        db_keys = None
+        if self.sor_cb:
+            key = self.sor_cb.currentData()
+            if key:
+                db_keys = [key]
+
+        # Use the explicit sub-category dropdown when available; fall back to comp_name
+        if self.type_filter_cb is not None:
+            type_filter = self.type_filter_cb.currentData()   # None = All types
+        else:
+            type_filter = self._comp_name
+
+        self._suggestions = _load_material_suggestions(
+            db_keys=db_keys, comp_name=type_filter
+        )
+
+        if self._suggestions:
+            model = QStringListModel(sorted(self._suggestions.keys()), self)
+            if self._active_completer is None:
+                self._active_completer = QCompleter(model, self)
+                self._active_completer.setCaseSensitivity(Qt.CaseInsensitive)
+                self._active_completer.setFilterMode(Qt.MatchContains)
+                self._active_completer.setMaxVisibleItems(10)
+                self._active_completer.activated.connect(self._on_suggestion_selected)
+                self.name_in.setCompleter(self._active_completer)
+            else:
+                self._active_completer.setModel(model)
+        else:
+            self.name_in.setCompleter(None)
+            self._active_completer = None
+
+    def _populate_type_filter(self, preselect: str = None):
+        """Rebuild the sub-category dropdown from the current SOR selection."""
+        db_keys = None
+        if self.sor_cb:
+            key = self.sor_cb.currentData()
+            if key:
+                db_keys = [key]
+
+        types = _list_sor_types(db_keys=db_keys)
+
+        self.type_filter_cb.blockSignals(True)
+        self.type_filter_cb.clear()
+        self.type_filter_cb.addItem("All types", None)
+        for t in types:
+            self.type_filter_cb.addItem(t, t)
+
+        # Auto-select the best matching type (exact → substring → keep "All types")
+        best_idx = 0
+        if preselect:
+            pre_lower = preselect.strip().lower()
+            for i in range(1, self.type_filter_cb.count()):
+                t = (self.type_filter_cb.itemData(i) or "").lower()
+                if t == pre_lower or pre_lower in t or t in pre_lower:
+                    best_idx = i
+                    break
+
+        self.type_filter_cb.setCurrentIndex(best_idx)
+        self.type_filter_cb.blockSignals(False)
+
+    def _on_sor_changed(self):
+        if self.type_filter_cb is not None:
+            current_type = self.type_filter_cb.currentData()
+            self._populate_type_filter(preselect=current_type or self._comp_name)
+        self._reload_suggestions()
+
+    def _on_type_filter_changed(self):
+        self._reload_suggestions()
+
+    def _lock_autofilled_fields(self, lock: bool):
+        """Disable (lock=True) or enable (lock=False) fields that were auto-filled from DB."""
+        self.unit_in.setEnabled(not lock)
+        self.rate_in.setReadOnly(lock)
+        self.src_in.setReadOnly(lock)
+        self.carbon_em_in.setReadOnly(lock)
+        self.carbon_denom_cb.setEnabled(not lock)
+        self.conv_factor_in.setReadOnly(lock)
+
+    def _on_allow_edit_toggled(self, checked: bool):
+        """Unlock autofilled fields when checked; restore DB values and re-lock when unchecked."""
+        if not checked and self._sor_item is not None:
+            self._sor_filling = True
+            try:
+                item = self._sor_item
+                unit = item.get('unit', '')
+                if unit:
+                    idx = _resolve_unit_code(unit, self.unit_in)
+                    if idx >= 0:
+                        self.unit_in.setCurrentIndex(idx)
+
+                rate = item.get('rate', '')
+                self.rate_in.setText(str(rate) if rate not in ('', 'not_available', None) else '')
+
+                src = item.get('rate_src', '')
+                self.src_in.setText(str(src) if src not in ('', 'not_available', None) else '')
+
+                carbon = item.get('carbon_emission', 'not_available')
+                if carbon not in ('not_available', '', None):
+                    self.carbon_em_in.setText(str(carbon))
+                    self.carbon_chk.setChecked(True)
+                else:
+                    self.carbon_em_in.setText('')
+
+                denom = item.get('carbon_emission_units_den', 'not_available')
+                if denom not in ('not_available', '', None):
+                    didx = _resolve_unit_code(denom, self.carbon_denom_cb)
+                    if didx >= 0:
+                        self.carbon_denom_cb.setCurrentIndex(didx)
+
+                cf = item.get('conversion_factor', 'not_available')
+                self.conv_factor_in.setText(str(cf) if cf not in ('not_available', '', None) else '')
+
+                recycleable = item.get('recycleable', '')
+                self.recycle_chk.setChecked(
+                    bool(recycleable) and recycleable.lower() != 'non-recyclable'
+                )
+            finally:
+                self._sor_filling = False
+            self._is_customized = False
+            self._is_modified_by_user = False
+            self._update_cf()
+
+        self._lock_autofilled_fields(not checked)
+        if checked:
+            self._is_modified_by_user = True
+
+    def _on_save_to_custom_db(self):
+        """Save the current material form values to a user-chosen custom database."""
+        if not self.name_in.text().strip():
+            QMessageBox.warning(
+                self, "Missing Name",
+                "Please enter a material name before saving to a custom database."
+            )
+            return
+
+        try:
+            from ..registry.custom_material_db import CustomMaterialDB
+            cdb = CustomMaterialDB()
+            existing = cdb.list_db_names()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not open custom database:\n{e}")
+            return
+
+        dlg = _SaveToCustomDBDialog(existing, parent=self)
+        if not dlg.exec():
+            return
+
+        db_name = dlg.selected_name()
+        try:
+            cdb.save_material(db_name, self.get_values())
+            QMessageBox.information(
+                self, "Saved",
+                f"Material saved to '{db_name}'.\n"
+                f"It will appear in suggestions next time you open this dialog."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Save Failed", str(e))
+
+    def _on_field_manually_changed(self):
+        """Mark the entry as customized when user edits a field after SOR auto-fill."""
+        if not self._sor_filling and self._sor_item is not None:
+            self._is_customized = True
+
+    # ── Suggestion auto-fill ──────────────────────────────────────────────
+
+    def _on_suggestion_selected(self, name: str):
+        """Auto-fill rate, unit, and emission fields from the selected SOR item."""
+        item = self._suggestions.get(name)
+        if not item:
+            return
+
+        self._sor_filling = True
+        try:
+            # Unit — use alias-aware resolver so 'MT'→'mt', 'RMT'→'rm', etc. work
+            unit = item.get('unit', '')
+            if unit:
+                idx = _resolve_unit_code(unit, self.unit_in)
+                if idx >= 0:
+                    self.unit_in.setCurrentIndex(idx)
+
+            # Rate
+            rate = item.get('rate', '')
+            if rate not in ('', 'not_available', None):
+                self.rate_in.setText(str(rate))
+
+            # Rate source
+            src = item.get('rate_src', '')
+            if src not in ('', 'not_available', None):
+                self.src_in.setText(str(src))
+
+            # Carbon emission factor
+            carbon = item.get('carbon_emission', 'not_available')
+            if carbon not in ('not_available', '', None):
+                self.carbon_em_in.setText(str(carbon))
+                self.carbon_chk.setChecked(True)
+
+            # Carbon emission unit denominator — same resolver
+            denom = item.get('carbon_emission_units_den', 'not_available')
+            if denom not in ('not_available', '', None):
+                didx = _resolve_unit_code(denom, self.carbon_denom_cb)
+                if didx >= 0:
+                    self.carbon_denom_cb.setCurrentIndex(didx)
+
+            # Conversion factor
+            cf = item.get('conversion_factor', 'not_available')
+            if cf not in ('not_available', '', None):
+                self.conv_factor_in.setText(str(cf))
+
+            # Recyclability
+            recycleable = item.get('recycleable', '')
+            if recycleable and recycleable.lower() != 'non-recyclable':
+                self.recycle_chk.setChecked(True)
+            else:
+                self.recycle_chk.setChecked(False)
+
+            # Record which SOR item was selected; reset customization flag
+            self._sor_item = item
+            self._is_customized = False
+
+        finally:
+            self._sor_filling = False
+
+        self._update_cf()
+
+        # Lock autofilled fields and enable the checkbox
+        self._allow_edit_chk.blockSignals(True)
+        self._allow_edit_chk.setChecked(False)
+        self._allow_edit_chk.blockSignals(False)
+        self._allow_edit_chk.setEnabled(True)
+        self._lock_autofilled_fields(True)
+        self._is_modified_by_user = False
 
     # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -978,6 +1529,10 @@ class MaterialDialog(QDialog):
             "type": self.type_in.currentText().strip(),
             "_included_in_carbon_emission": self.carbon_chk.isChecked(),
             "_included_in_recyclability": self.recycle_chk.isChecked(),
+            "_from_sor": self._sor_item is not None,
+            "_sor_db_key": self._sor_item.get("db_key", "") if self._sor_item else "",
+            "_is_customized": self._is_customized if self._sor_item is not None else False,
+            "_is_modified_by_user": self._is_modified_by_user,
         }
 
 
@@ -1074,6 +1629,7 @@ class StructureManagerWidget(QWidget):
 
         included_carbon = values_dict.pop("_included_in_carbon_emission", True)
         included_recycling = values_dict.pop("_included_in_recyclability", True)
+        is_modified_by_user = values_dict.pop("_is_modified_by_user", False)
 
         new_entry = {
             "id": str(uuid.uuid4()),
@@ -1084,6 +1640,7 @@ class StructureManagerWidget(QWidget):
                 "is_user_defined": True,
                 "is_from_db": False,
                 "source_version": "1.0",
+                "is_modified_by_user": is_modified_by_user,
             },
             "state": {
                 "in_trash": is_trash,
@@ -1103,8 +1660,14 @@ class StructureManagerWidget(QWidget):
         self.save_current_state()
         self.on_refresh()
 
+    def _get_project_country(self) -> str:
+        try:
+            return self.controller.get_chunk("general_info").get("project_country", "") or ""
+        except Exception:
+            return ""
+
     def open_dialog(self, comp_name):
-        dialog = MaterialDialog(comp_name, self)
+        dialog = MaterialDialog(comp_name, self, country=self._get_project_country())
         if dialog.exec():
             self.add_material(comp_name, dialog.get_values())
 
@@ -1123,7 +1686,8 @@ class StructureManagerWidget(QWidget):
                 original_idx = active_indices[table_row_index]
                 item_to_edit = items[original_idx]
 
-                dialog = MaterialDialog(comp_name, self, data=item_to_edit)
+                dialog = MaterialDialog(comp_name, self, data=item_to_edit,
+                                       country=self._get_project_country())
                 if dialog.exec():
                     new_values = dialog.get_values()
 
@@ -1133,11 +1697,17 @@ class StructureManagerWidget(QWidget):
                     included_recycling = new_values.pop(
                         "_included_in_recyclability", True
                     )
+                    new_is_modified = new_values.pop("_is_modified_by_user", False)
 
                     item_to_edit["values"] = new_values
                     item_to_edit["meta"][
                         "modified_on"
                     ] = datetime.datetime.now().isoformat()
+                    # Once marked as modified by user, it stays modified forever
+                    item_to_edit["meta"]["is_modified_by_user"] = (
+                        item_to_edit["meta"].get("is_modified_by_user", False)
+                        or new_is_modified
+                    )
                     item_to_edit["state"][
                         "included_in_carbon_emission"
                     ] = included_carbon

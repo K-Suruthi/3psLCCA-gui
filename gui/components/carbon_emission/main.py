@@ -45,25 +45,26 @@ class CarbonEmissionTabView(QWidget):
 
         main_layout.addWidget(self.tab_view)
 
-    def validate(self):
-        from gui.components.utils.form_builder.form_definitions import ValidationStatus
+    def validate(self) -> dict:
         all_errors = []
         all_warnings = []
         for i in range(self.tab_view.count()):
             tab = self.tab_view.widget(i)
             if not hasattr(tab, "validate"):
                 continue
-            status, issues = tab.validate()
+            result = tab.validate()
             name = self.tab_view.tabText(i)
-            if status == ValidationStatus.ERROR:
-                all_errors.extend(f"{name}: {msg}" for msg in issues)
-            elif status == ValidationStatus.WARNING:
-                all_warnings.extend(f"{name}: {msg}" for msg in issues)
-        if all_errors:
-            return ValidationStatus.ERROR, all_errors
-        if all_warnings:
-            return ValidationStatus.WARNING, all_warnings
-        return ValidationStatus.SUCCESS, []
+            if isinstance(result, dict):
+                all_errors.extend(f"{name}: {msg}" for msg in result.get("errors", []))
+                all_warnings.extend(f"{name}: {msg}" for msg in result.get("warnings", []))
+            else:
+                from gui.components.utils.form_builder.form_definitions import ValidationStatus
+                status, issues = result
+                if status == ValidationStatus.ERROR:
+                    all_errors.extend(f"{name}: {msg}" for msg in issues)
+                elif status == ValidationStatus.WARNING:
+                    all_warnings.extend(f"{name}: {msg}" for msg in issues)
+        return {"errors": all_errors, "warnings": all_warnings}
 
     def get_data(self) -> dict:
         data = {}

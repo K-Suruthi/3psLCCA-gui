@@ -7,12 +7,9 @@ class MiscWidget(StructureManagerWidget):
             controller=controller,
             chunk_name="str_misc",
             default_components=[
-                "Bearing",
-                "Railing",
-                "Drainage Spouts",
-                "Asphalt Work",
-                "Utilities",
+                "Railing  & Crash Barrier & Median",
                 "Drainage",
+                "Asphalt, Utilities and Other Materials",
                 "Waterproofing"
             ],
         )

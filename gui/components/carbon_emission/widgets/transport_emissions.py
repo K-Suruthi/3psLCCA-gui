@@ -594,6 +594,100 @@ class TransportEmissions(QWidget):
             except Exception as e:
                 print(f"[TransportEmissions] _mark_dirty: {e}")
 
+    def _compute(self) -> dict:
+        """
+        Core calculation logic shared by on_refresh(), validate(), and get_data().
+        Returns raw computed data without touching any UI.
+        """
+        cat_totals = {label: 0.0 for _, label in STRUCTURE_CHUNKS}
+        entries = []
+        all_warnings = []
+        total_emission = 0.0
+        active_count = 0
+
+        if not self.controller or not getattr(self.controller, "engine", None):
+            return {
+                "total_emission": 0.0,
+                "cat_totals": cat_totals,
+                "active_count": 0,
+                "entries": [],
+                "all_warnings": [],
+            }
+
+        data = self.controller.engine.fetch_chunk("transport_data") or {}
+        vehicles = data.get("vehicles", [])
+        mat_index = _build_material_index(self.controller.engine)
+
+        for entry in vehicles:
+            if entry.get("state", {}).get("in_trash", False):
+                continue
+            active_count += 1
+            emission, mat_results, warnings = calc_vehicle_emission(entry, mat_index)
+            total_emission += emission
+            for mat in mat_results:
+                if mat.get("status") == "ok":
+                    cat = mat.get("category", "")
+                    if cat in cat_totals:
+                        cat_totals[cat] += mat.get("emission", 0)
+            all_warnings.extend(warnings)
+            entries.append({
+                "entry": entry,
+                "emission": emission,
+                "mat_results": mat_results,
+                "warnings": warnings,
+            })
+
+        return {
+            "total_emission": total_emission,
+            "cat_totals": cat_totals,
+            "active_count": active_count,
+            "entries": entries,
+            "all_warnings": all_warnings,
+        }
+
+    def validate(self) -> dict:
+        result = self._compute()
+        warnings = []
+
+        if result["active_count"] == 0:
+            warnings.append(
+                "No active vehicle entries — add a vehicle in the Transportation Emissions tab."
+            )
+        elif result["total_emission"] == 0.0:
+            warnings.append(
+                "Total transport emission is 0 kgCO₂e — "
+                "check vehicle distance, payload, and emission factor."
+            )
+
+        if result["all_warnings"]:
+            for w in result["all_warnings"]:
+                warnings.append(w)
+
+        return {"errors": [], "warnings": warnings}
+
+    def get_data(self) -> dict:
+        result = self._compute()
+        entries_out = [
+            {
+                "vehicle_name": e["entry"].get("vehicle", {}).get("name", ""),
+                "origin": e["entry"].get("route", {}).get("origin", ""),
+                "destination": e["entry"].get("route", {}).get("destination", ""),
+                "distance_km": e["entry"].get("route", {}).get("distance_km", 0),
+                "emission_kgCO2e": e["emission"],
+                "materials": e["mat_results"],
+            }
+            for e in result["entries"]
+        ]
+        return {
+            "chunk": "transport_emissions_data",
+            "data": {
+                "entries": entries_out,
+                "cat_totals": result["cat_totals"],
+                "total_kgCO2e": result["total_emission"],
+                "active_vehicle_count": result["active_count"],
+            },
+        }
+
     def showEvent(self, event):
         super().showEvent(event)
         self.on_refresh()

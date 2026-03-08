@@ -877,9 +877,23 @@ class MachineryEmissions(ScrollableForm):
         self.load_data(data)
         self._apply_currency()
 
-    def validate(self):
-        from gui.components.utils.form_builder.form_definitions import ValidationStatus
-        return ValidationStatus.SUCCESS, []
+    def validate(self) -> dict:
+        data = self.collect_data()
+        warnings = []
+        total = data.get("total_kgCO2e", 0.0)
+        if total == 0.0:
+            mode = data.get("mode", "")
+            if mode == "detailed":
+                warnings.append(
+                    "Total machinery emissions is 0 kgCO₂e — "
+                    "no equipment rows added or all inputs are zero."
+                )
+            else:
+                warnings.append(
+                    "Total machinery emissions is 0 kgCO₂e — "
+                    "lumpsum fuel and electricity values are zero."
+                )
+        return {"errors": [], "warnings": warnings}
 
     def get_data(self) -> dict:
         return {"chunk": CHUNK, "data": self.get_data_dict()}

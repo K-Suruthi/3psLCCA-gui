@@ -6,13 +6,5 @@ class SuperStructureWidget(StructureManagerWidget):
         super().__init__(
             controller=controller,
             chunk_name="str_super_structure",
-            default_components=[
-                "Girders",
-                "Deck Slab",
-                "Expansion Joints",
-                "Wearing Coat",
-                "Parapets",
-                "Diaphragm",
-                "Cross Bracings"
-            ],
+            default_components=["Girder", "Deck Slab", "Diaphragm", "Cross Bracings"],
         )

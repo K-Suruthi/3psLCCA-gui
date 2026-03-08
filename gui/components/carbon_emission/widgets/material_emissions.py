@@ -496,6 +496,137 @@ class MaterialEmissions(QWidget):
             except:
                 pass
 
+    def _compute(self) -> dict:
+        """
+        Core calculation logic shared by on_refresh(), validate(), and get_data().
+        Returns raw computed data without touching any UI.
+        """
+        cat_totals = {label: 0.0 for _, label in CHUNKS}
+        included_items = []
+        excluded_items = []
+        total_carbon = 0.0
+        total_count = 0
+        included_count = 0
+
+        if not self.controller or not getattr(self.controller, "engine", None):
+            return {
+                "total_carbon": 0.0,
+                "cat_totals": cat_totals,
+                "included_count": 0,
+                "total_count": 0,
+                "included_items": [],
+                "excluded_items": [],
+            }
+
+        for chunk_id, category in CHUNKS:
+            data = self.controller.engine.fetch_chunk(chunk_id) or {}
+            for comp_name, items in data.items():
+                for idx, item in enumerate(items):
+                    if item.get("state", {}).get("in_trash", False):
+                        continue
+                    total_count += 1
+                    v = item.get("values", {})
+                    state = item.get("state", {})
+                    carbon_unit = v.get("carbon_unit", "")
+                    carbon_denom = carbon_unit.split("/")[-1] if "/" in carbon_unit else ""
+                    analysis = _cached_analysis(
+                        v.get("unit", ""), carbon_denom, v.get("conversion_factor", 1)
+                    )
+                    valid = is_carbon_valid(item)
+                    is_included_flag = state.get("included_in_carbon_emission", True)
+                    is_confirmed = state.get("carbon_conversion_confirmed", False)
+                    suspicious = analysis["is_suspicious"] and not is_confirmed
+
+                    if valid and is_included_flag and not suspicious:
+                        included_count += 1
+                        carbon = calc_carbon(item)
+                        total_carbon += carbon
+                        cat_totals[category] += carbon
+                        included_items.append(
+                            (category, chunk_id, comp_name, idx, item, carbon, analysis)
+                        )
+                    else:
+                        reason = (
+                            "Missing Data"
+                            if not valid
+                            else ("Suspicious Data" if suspicious else "User Excluded")
+                        )
+                        excluded_items.append(
+                            (category, chunk_id, comp_name, idx, item, reason, analysis)
+                        )
+
+        return {
+            "total_carbon": total_carbon,
+            "cat_totals": cat_totals,
+            "included_count": included_count,
+            "total_count": total_count,
+            "included_items": included_items,
+            "excluded_items": excluded_items,
+        }
+
+    def validate(self) -> dict:
+        result = self._compute()
+        warnings = []
+
+        if result["total_count"] == 0:
+            warnings.append(
+                "No materials found — add items in the Construction Work Data section."
+            )
+        elif result["total_carbon"] == 0.0:
+            warnings.append(
+                f"Total material carbon is 0 kgCO₂e — "
+                f"{result['included_count']} of {result['total_count']} items are included."
+            )
+
+        missing = sum(
+            1 for *_, reason, _ in result["excluded_items"] if reason == "Missing Data"
+        )
+        suspicious = sum(
+            1 for *_, reason, _ in result["excluded_items"] if reason == "Suspicious Data"
+        )
+        if missing:
+            warnings.append(
+                f"{missing} item{'s' if missing != 1 else ''} excluded — missing emission factor data."
+            )
+        if suspicious:
+            warnings.append(
+                f"{suspicious} item{'s' if suspicious != 1 else ''} excluded — "
+                f"suspicious conversion factor (not confirmed)."
+            )
+
+        return {"errors": [], "warnings": warnings}
+
+    def get_data(self) -> dict:
+        result = self._compute()
+        included = [
+            {
+                "category": cat,
+                "component": comp,
+                "material": item.get("values", {}).get("material_name", ""),
+                "quantity": float(item.get("values", {}).get("quantity", 0) or 0),
+                "unit": item.get("values", {}).get("unit", ""),
+                "conversion_factor": float(
+                    item.get("values", {}).get("conversion_factor", 1) or 1
+                ),
+                "carbon_emission": float(
+                    item.get("values", {}).get("carbon_emission", 0) or 0
+                ),
+                "carbon_unit": item.get("values", {}).get("carbon_unit", ""),
+                "total_kgCO2e": carbon,
+            }
+            for cat, chunk_id, comp, idx, item, carbon, analysis in result["included_items"]
+        ]
+        return {
+            "chunk": "material_emissions_data",
+            "data": {
+                "included_items": included,
+                "cat_totals": result["cat_totals"],
+                "total_kgCO2e": result["total_carbon"],
+                "included_count": result["included_count"],
+                "total_count": result["total_count"],
+            },
+        }
+
     def showEvent(self, event):
         super().showEvent(event)
         self.on_refresh()

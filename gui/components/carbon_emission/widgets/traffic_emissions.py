@@ -500,6 +500,27 @@ class TrafficEmissions(ScrollableForm):
         finally:
             self._suppress_mode_signal = False
 
+    def validate(self) -> dict:
+        data = self.collect_data()
+        warnings = []
+        mode = data.get("mode", "")
+        if mode == "Calculate by Vehicle":
+            if data.get("total_calculated_emissions", 0.0) == 0.0:
+                warnings.append(
+                    "Total diversion emissions is 0 kgCO₂e/day — "
+                    "check reroute distance and vehicle counts in Traffic Data."
+                )
+        else:
+            if data.get("total_direct_emissions", 0.0) == 0.0:
+                warnings.append(
+                    "Total direct diversion emissions is 0 kgCO₂e — "
+                    "enter the total emission value in the field."
+                )
+        return {"errors": [], "warnings": warnings}
+
+    def get_data(self) -> dict:
+        return {"chunk": CHUNK, "data": self.collect_data()}
+
     # ── Clear All ─────────────────────────────────────────────────────────────
 
     def clear_all(self):
