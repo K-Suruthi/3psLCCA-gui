@@ -255,7 +255,7 @@ class SocialCost(ScrollableForm):
         finally:
             self.form = _saved
 
-        self.scc_value.valueChanged.connect(self._on_field_changed)
+        self.scc_value.valueChanged.connect(self._update_custom_result)
         return w
 
     # ── Stack height ──────────────────────────────────────────────────────────
@@ -287,7 +287,7 @@ class SocialCost(ScrollableForm):
             self._update_ricke_result()
         else:
             self._stack.setCurrentIndex(2)
-            self._on_field_changed()
+            self._update_custom_result()
 
         QTimer.singleShot(0, self._fit_stack)
 
@@ -306,7 +306,14 @@ class SocialCost(ScrollableForm):
             f"NITI Aayog Base: <b>{NITI_AAYOG_SCC_INR} INR/kgCO₂e</b><br/>"
             f"Adjusted Local Cost: <b>{val:.6f} {cur}/kgCO₂e</b>"
         )
-        self._set_result(val)
+        self._set_result(
+            val,
+            mode=_MODE_NITI,
+            base_price=NITI_AAYOG_SCC_INR,
+            base_unit="INR/kgCO₂e",
+            conversion_rate=rate,
+            rate_unit=f"{cur}/INR",
+        )
         self._on_field_changed()
 
     def _update_ricke_result(self):
@@ -315,24 +322,62 @@ class SocialCost(ScrollableForm):
         ssp = self.ssp_scenario.currentText()
         rcp = self.rcp_scenario.currentText()
         base = _RICKE_SCC_TABLE.get((ssp, rcp), 0.0)
-        val = base * self.usd_to_local_rate.value()
+        usd_rate = self.usd_to_local_rate.value()
+        val = base * usd_rate
         cur = self._project_currency or "USD"
         if base == 0:
             self._ricke_result_lbl.setText(
                 "<i>Scenario combination not found in Ricke et al. table.</i>"
             )
-            self._set_result(0.0)
+            self._set_result(
+                0.0,
+                mode=_MODE_RICKE,
+                base_price=0.0,
+                base_unit="USD/kgCO₂e",
+                conversion_rate=usd_rate,
+                rate_unit=f"{cur}/USD",
+            )
         else:
             self._ricke_result_lbl.setText(
                 f"Scenario Baseline: <b>${base:.4f} USD/kg</b><br/>"
                 f"Adjusted Local Cost: <b>{val:.6f} {cur}/kgCO₂e</b>"
             )
-            self._set_result(val)
+            self._set_result(
+                val,
+                mode=_MODE_RICKE,
+                base_price=base,
+                base_unit="USD/kgCO₂e",
+                conversion_rate=usd_rate,
+                rate_unit=f"{cur}/USD",
+            )
         self._on_field_changed()
 
-    def _set_result(self, value):
+    def _update_custom_result(self):
+        if self._suppress_signals:
+            return
+        val = self.scc_value.value()
         cur = self._project_currency or ""
-        self._result_lbl.setText(f"<b>Effective SCC: {value:.6f} {cur}/kgCO₂e</b>")
+        self._set_result(
+            val,
+            mode=_MODE_CUSTOM,
+            base_price=val,
+            base_unit=f"{cur}/kgCO₂e",
+            conversion_rate=1.0,
+            rate_unit="(direct entry)",
+        )
+        self._on_field_changed()
+
+    def _set_result(self, value, mode=None, base_price=None, base_unit=None, conversion_rate=None, rate_unit=None):
+        cur = self._project_currency or ""
+        if mode is not None and base_price is not None and conversion_rate is not None:
+            self._result_lbl.setText(
+                f"<b>Selected Mode:</b> {mode}<br/>"
+                f"<b>Base Price:</b> {base_price} {base_unit}<br/>"
+                f"<b>Conversion Rate:</b> {conversion_rate} {rate_unit}<br/>"
+                f"<b>Effective SCC:</b> {value:.6f} {cur}/kgCO₂e"
+            )
+        else:
+            self._result_lbl.setText(f"<b>Effective SCC: {value:.6f} {cur}/kgCO₂e</b>")
 
     # ── Global sync ───────────────────────────────────────────────────────────
 
@@ -402,15 +447,25 @@ class SocialCost(ScrollableForm):
                 "unit": f"{cur}/kgCO₂e",
             },
             "result": {
-                "methodology": mode,
+                "selected_mode": mode,
+                "base_price": (
+                    NITI_AAYOG_SCC_INR if _MODE_NITI in mode
+                    else usd_base if _MODE_RICKE in mode
+                    else custom_val
+                ),
+                "base_price_unit": (
+                    "INR/kgCO₂e" if _MODE_NITI in mode
+                    else "USD/kgCO₂e" if _MODE_RICKE in mode
+                    else f"{cur}/kgCO₂e"
+                ),
+                "conversion_rate": (
+                    niti_rate if _MODE_NITI in mode
+                    else usd_rate if _MODE_RICKE in mode
+                    else 1.0
+                ),
                 "cost_of_carbon_local": round(final, 6),
                 "currency": cur,
                 "unit": f"{cur}/kgCO₂e",
-                "scientific_params": {
-                    "ssp": ssp,
-                    "rcp": rcp,
-                    "usd_to_local_rate": usd_rate,
-                },
             },
         }
 
