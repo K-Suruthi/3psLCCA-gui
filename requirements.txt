@@ -1,4 +1,5 @@
 PySide6
 psutil
-sympy
 Pillow
+matplotlib
+three_ps_lcca_core @ git+https://github.com/swas02/3psLCCA-core.git@main

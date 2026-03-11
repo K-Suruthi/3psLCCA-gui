@@ -36,7 +36,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..utils.wpi_manager import WPIManager, WPIProfile, IntegrityState, empty_data
+from ..utils.wpi_manager import (
+    WPIManager, WPIProfile, IntegrityState, empty_data,
+    load_user_library, save_to_user_library, delete_from_user_library,
+)
 
 
 # ── Integrity badge ───────────────────────────────────────────────────────────
@@ -93,6 +96,101 @@ class _SaveAsDialog(QDialog):
         return self._remark.toPlainText().strip()
 
 
+# ── Import-from-Library dialog ────────────────────────────────────────────────
+
+
+class _ImportLibraryDialog(QDialog):
+    """
+    Let the user pick one profile from the global user WPI library.
+    Shows name, year, remark, and a Delete-from-library button per entry.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Import from My WPI Library")
+        self.setMinimumWidth(480)
+        self.setMinimumHeight(320)
+        self._selected: WPIProfile | None = None
+
+        layout = QVBoxLayout(self)
+
+        self._list = QComboBox()
+        self._list.setMinimumHeight(30)
+        layout.addWidget(QLabel("Select a saved profile:"))
+        layout.addWidget(self._list)
+
+        # Detail area
+        self._detail = QLabel()
+        self._detail.setWordWrap(True)
+        self._detail.setStyleSheet("color: gray; font-size: 11px;")
+        layout.addWidget(self._detail)
+        layout.addSpacing(8)
+
+        # Delete from library button
+        self._btn_del = QPushButton("🗑 Remove from Library")
+        self._btn_del.setFixedHeight(26)
+        self._btn_del.clicked.connect(self._on_delete)
+        layout.addWidget(self._btn_del)
+
+        layout.addStretch()
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self._on_ok)
+        btns.rejected.connect(self.reject)
+        self._btn_ok = btns.button(QDialogButtonBox.Ok)
+        layout.addWidget(btns)
+
+        self._refresh()
+
+    def _refresh(self):
+        self._list.blockSignals(True)
+        self._list.clear()
+        self._profiles = load_user_library()
+        for p in self._profiles:
+            self._list.addItem(f"{p.name}  ({p.year})", userData=p.id)
+        self._list.blockSignals(False)
+        self._list.currentIndexChanged.connect(self._on_idx_changed)
+        has = len(self._profiles) > 0
+        self._btn_ok.setEnabled(has)
+        self._btn_del.setEnabled(has)
+        if has:
+            self._on_idx_changed(0)
+        else:
+            self._detail.setText("No profiles saved yet.")
+
+    def _on_idx_changed(self, idx: int):
+        if 0 <= idx < len(self._profiles):
+            p = self._profiles[idx]
+            remark = p.remark or "—"
+            self._detail.setText(f"Year: {p.year}    Remark: {remark}")
+
+    def _on_delete(self):
+        idx = self._list.currentIndex()
+        if not (0 <= idx < len(self._profiles)):
+            return
+        p = self._profiles[idx]
+        reply = QMessageBox.question(
+            self,
+            "Remove from Library",
+            f"Remove '{p.name}' from your library?\n"
+            "This does not affect any project that already uses it.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            delete_from_user_library(p.id)
+            self._refresh()
+
+    def _on_ok(self):
+        idx = self._list.currentIndex()
+        if 0 <= idx < len(self._profiles):
+            self._selected = self._profiles[idx]
+            self.accept()
+
+    @property
+    def selected_profile(self) -> WPIProfile | None:
+        return self._selected
+
+
 # ── _WPISelector ──────────────────────────────────────────────────────────────
 
 
@@ -146,11 +244,26 @@ class _WPISelector(QWidget):
             btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             layout.addWidget(btn)
 
+        # Separator
+        sep = QLabel("|")
+        sep.setStyleSheet("color: #aaa; padding: 0 4px;")
+        layout.addWidget(sep)
+
+        # Library buttons
+        self._btn_save_lib   = QPushButton("⬆ Save to My Library")
+        self._btn_import_lib = QPushButton("⬇ Import from Library")
+        for btn in (self._btn_save_lib, self._btn_import_lib):
+            btn.setFixedHeight(28)
+            btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            layout.addWidget(btn)
+
         layout.addStretch()
 
         self._btn_new.clicked.connect(self._on_new)
         self._btn_save_as.clicked.connect(self._on_save_as)
         self._btn_delete.clicked.connect(self._on_delete)
+        self._btn_save_lib.clicked.connect(self._on_save_to_library)
+        self._btn_import_lib.clicked.connect(self._on_import_from_library)
 
     # ── Combo management ──────────────────────────────────────────────────────
 
@@ -217,6 +330,11 @@ class _WPISelector(QWidget):
             "Delete this custom profile"
             if profile.is_custom
             else "DB profiles cannot be deleted"
+        )
+        # Save to library — always available (any profile can be saved to library)
+        self._btn_save_lib.setEnabled(True)
+        self._btn_save_lib.setToolTip(
+            "Save this profile to your global WPI library to reuse in other projects"
         )
 
     # ── Slot handlers ─────────────────────────────────────────────────────────
@@ -296,8 +414,41 @@ class _WPISelector(QWidget):
     def collect_and_save(self, data: dict):
         """
         Called by parent after edit_requested signal to provide table data.
-        Completes the save-as operation.
+        Routes to either a Save-As operation or a Save-to-Library operation
+        depending on which button triggered the edit_requested signal.
         """
+        # ── Route: Save to Library ────────────────────────────────────────────
+        if getattr(self, "_pending_library_save", False):
+            del self._pending_library_save
+            if not self._current:
+                return
+
+            import json as _json
+            # Build a snapshot of the current profile with current table data
+            lib_profile = WPIProfile(
+                id=self._current.id,
+                name=self._current.name,
+                year=self._current.year,
+                is_custom=True,
+                remark=self._current.remark,
+                hash="",
+                data=_json.loads(_json.dumps(data)),
+            )
+            lib_profile.stamp_hash()
+
+            try:
+                save_to_user_library(lib_profile)
+                QMessageBox.information(
+                    self,
+                    "Saved to Library",
+                    f"Profile '{lib_profile.name}' has been saved to your global WPI library.\n"
+                    "You can import it into any project via 'Import from Library'.",
+                )
+            except Exception as e:
+                QMessageBox.warning(self, "Save Failed", f"Could not save to library:\n{e}")
+            return
+
+        # ── Route: Save As ────────────────────────────────────────────────────
         if not hasattr(self, "_pending_save_meta") or not self._current:
             return
 
@@ -336,6 +487,54 @@ class _WPISelector(QWidget):
         self._populate_combo()
         self._select_first()
         self.profile_deleted.emit(deleted_id)
+
+    def _on_save_to_library(self):
+        """Save the current profile (with current table data) to the global library."""
+        if not self._current:
+            return
+
+        # Ask the parent to collect current table data first
+        self.edit_requested.emit()
+
+        # Stash intent — collect_and_save() will be called by parent with the data;
+        # we intercept it via a flag so we can route to the library instead.
+        self._pending_library_save = True
+
+    def _on_import_from_library(self):
+        """Pick a profile from the global library and import it as a custom profile."""
+        dlg = _ImportLibraryDialog(parent=self)
+        if dlg.exec() != QDialog.Accepted or dlg.selected_profile is None:
+            return
+
+        src = dlg.selected_profile
+
+        # Generate a unique name in case the same profile was already imported
+        name = self._manager.suggest_custom_name(src.name) if self._manager.is_name_taken(src.name) else src.name
+
+        import json as _json
+        copy = WPIProfile(
+            id=f"wpi_custom_{name.replace(' ', '_').lower()}_{src.year}",
+            name=name,
+            year=src.year,
+            is_custom=True,
+            remark=src.remark or f"Imported from library: {src.name}",
+            hash="",
+            data=_json.loads(_json.dumps(src.data)),
+        )
+        copy.stamp_hash()
+        self._manager.add_custom(copy)
+        self._populate_combo(select_id=copy.id)
+        self._current = copy
+        self._update_badge(copy)
+        self._update_buttons(copy)
+        self.profile_saved.emit(copy)
+
+        QMessageBox.information(
+            self,
+            "Imported",
+            f"Profile '{name}' imported from your library as a custom profile.\n"
+            "You can edit it freely.",
+        )
 
     # ── Public API ────────────────────────────────────────────────────────────
 

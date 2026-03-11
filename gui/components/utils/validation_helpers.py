@@ -55,6 +55,23 @@ from PySide6.QtWidgets import (
 from .form_builder.form_definitions import FieldDef
 
 
+# ── Style helpers ─────────────────────────────────────────────────────────────
+
+
+def _border_style(widget, color: str) -> str:
+    """
+    Return a stylesheet string that applies a coloured border without breaking
+    the widget's internal child styles.
+
+    QComboBox needs a scoped ``QComboBox { ... }`` selector — a bare
+    ``border: ...`` rule cascades into the popup list and makes its
+    background transparent.  All other widgets are fine with the bare rule.
+    """
+    if isinstance(widget, QComboBox):
+        return f"QComboBox {{ border: 1px solid {color}; }}"
+    return f"border: 1px solid {color};"
+
+
 # ── Field helpers ─────────────────────────────────────────────────────────────
 
 
@@ -120,7 +137,7 @@ def validate_form(
             error_keys.add(f.key)
             continue
         if isinstance(widget, QLineEdit) and not widget.text().strip():
-            widget.setStyleSheet("border: 1px solid #dc3545;")
+            widget.setStyleSheet(_border_style(widget, "#dc3545"))
             errors.append(f"Missing: {f.title}")
             error_keys.add(f.key)
         elif (isinstance(widget, QAbstractSpinBox)
@@ -128,7 +145,7 @@ def validate_form(
               and widget.value() == widget.minimum()):
             # Spinbox with an explicit default uses the minimum as the "blank" sentinel.
             # If still at minimum it has never been filled — treat as a required error.
-            widget.setStyleSheet("border: 1px solid #dc3545;")
+            widget.setStyleSheet(_border_style(widget, "#dc3545"))
             errors.append(f"Required: {f.title}")
             error_keys.add(f.key)
         # QSpinBox/QDoubleSpinBox without default: 0 is a valid value — use warn_rules
@@ -172,11 +189,11 @@ def validate_form(
         if too_low:
             label = low_msg if low_msg else f"{field_title(key, fields)} looks unusual ({val})"
             warnings.append(label)
-            widget.setStyleSheet("border: 1px solid orange;")
+            widget.setStyleSheet(_border_style(widget, "orange"))
         elif too_high:
             label = high_msg if high_msg else f"{field_title(key, fields)} looks unusual ({val})"
             warnings.append(label)
-            widget.setStyleSheet("border: 1px solid orange;")
+            widget.setStyleSheet(_border_style(widget, "orange"))
         else:
             widget.setStyleSheet("")  # passed both checks — clear any stale style
 

@@ -317,6 +317,10 @@ def build_form(
         elif f.field_type == "combo":
             widget = QComboBox()
             widget.addItems(f.options)
+            if f.default is not None:
+                idx = widget.findText(str(f.default))
+                if idx >= 0:
+                    widget.setCurrentIndex(idx)
             widget.setMinimumHeight(30)
             setattr(host, f.key, host.field(f.key, widget))
             widget.currentIndexChanged.connect(

@@ -13,12 +13,20 @@ Integrity states:
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
+import datetime
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
 from typing import Optional
 from .wpi_hash import compute_hash, verify_hash
+
+# ── User DB path ──────────────────────────────────────────────────────────────
+# Single SQLite file shared across all projects (same folder as wpi_db.json).
+_USER_DB_PATH = (
+    Path(__file__).parent.parent.parent.parent / "data" / "user.db"
+)
 
 
 # ── Integrity State ───────────────────────────────────────────────────────────
@@ -246,3 +254,151 @@ class WPIManager:
     def unlisted(self) -> list[WPIProfile]:
         """Profiles that failed integrity check (for logging/warning)."""
         return self._unlisted
+
+
+# ── UserWPILibrary ────────────────────────────────────────────────────────────
+
+
+class UserWPILibrary:
+    """
+    SQLite-backed global library of WPI profiles, shared across all projects.
+
+    Stored in data/user.db — one row per saved profile.
+    """
+
+    def __init__(self, path: Path = _USER_DB_PATH):
+        self._path = path
+        self._ensure_schema()
+
+    # ── Internal ──────────────────────────────────────────────────────────────
+
+    def _connect(self) -> sqlite3.Connection:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self._path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _ensure_schema(self):
+        with self._connect() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS wpi_profiles (
+                    id         TEXT PRIMARY KEY,
+                    name       TEXT NOT NULL,
+                    year       INTEGER NOT NULL,
+                    remark     TEXT DEFAULT '',
+                    data       TEXT NOT NULL,
+                    hash       TEXT DEFAULT '',
+                    created_at TEXT DEFAULT (datetime('now')),
+                    updated_at TEXT DEFAULT (datetime('now'))
+                )
+            """)
+
+    # ── Queries ───────────────────────────────────────────────────────────────
+
+    def all(self) -> list[WPIProfile]:
+        """Return all library profiles, newest first."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM wpi_profiles ORDER BY updated_at DESC"
+            ).fetchall()
+        profiles = []
+        for r in rows:
+            try:
+                profiles.append(self._row_to_profile(r))
+            except Exception:
+                pass
+        return profiles
+
+    def name_exists(self, name: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM wpi_profiles WHERE LOWER(name)=LOWER(?)", (name,)
+            ).fetchone()
+        return row is not None
+
+    def unique_name(self, base: str) -> str:
+        """
+        Return a name guaranteed to be unique in the library.
+        Uses  base → base (2) → base (3) …  to stay readable.
+        """
+        if not self.name_exists(base):
+            return base
+        i = 2
+        while self.name_exists(f"{base} ({i})"):
+            i += 1
+        return f"{base} ({i})"
+
+    # ── Mutations ─────────────────────────────────────────────────────────────
+
+    def save(self, profile: WPIProfile) -> None:
+        """Insert or replace a profile (keyed by id)."""
+        now = datetime.datetime.now().isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO wpi_profiles (id, name, year, remark, data, hash,
+                                         created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name       = excluded.name,
+                    year       = excluded.year,
+                    remark     = excluded.remark,
+                    data       = excluded.data,
+                    hash       = excluded.hash,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    profile.id, profile.name, profile.year,
+                    profile.remark, json.dumps(profile.data),
+                    profile.hash, now, now,
+                ),
+            )
+
+    def delete(self, profile_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM wpi_profiles WHERE id=?", (profile_id,)
+            )
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _row_to_profile(r: sqlite3.Row) -> WPIProfile:
+        return WPIProfile(
+            id=r["id"],
+            name=r["name"],
+            year=r["year"],
+            is_custom=True,
+            remark=r["remark"] or "",
+            hash=r["hash"] or "",
+            data=json.loads(r["data"]),
+        )
+
+
+# ── Module-level convenience ──────────────────────────────────────────────────
+# A single shared instance so callers don't have to instantiate the class.
+
+_library = UserWPILibrary()
+
+
+def load_user_library() -> list[WPIProfile]:
+    """Return all profiles from the global user WPI library."""
+    return _library.all()
+
+
+def save_to_user_library(profile: WPIProfile) -> None:
+    """Add or update *profile* in the global user WPI library."""
+    _library.save(profile)
+
+
+def delete_from_user_library(profile_id: str) -> None:
+    """Remove a profile by id from the global user WPI library."""
+    _library.delete(profile_id)
+
+
+def library_unique_name(base: str) -> str:
+    """
+    Return a name that does not clash with any existing library entry.
+    e.g. 'My 2024'  →  'My 2024 (2)'  →  'My 2024 (3)'  …
+    """
+    return _library.unique_name(base)

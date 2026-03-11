@@ -8,10 +8,10 @@
                 "year": 2019,
                 "is_custom": false,
                 "remark": "Official WPI index values for 2019",
-                "hash": "sha256:6bc48efcfc6cef5e8d2ceb535be45a65d9db4f0c3ac9ecf338f8ed0ae2d455df"
+                "hash": "sha256:e9788d878fec6f73c77ae6c952630fa60edffe4c412375f912cdc90b9e95e26a"
             },
             "data": {
-                "fuelCost": {
+                "fuel_cost": {
                     "petrol": 85.4,
                     "diesel": 94.4,
                     "engine_oil": 131.2,
@@ -19,7 +19,7 @@
                     "grease": 92.5
                 },
                 "vehicle_cost": {
-                    "propertyDamage": {
+                    "property_damage": {
                         "small_cars": 113.2,
                         "big_cars": 113.2,
                         "two_wheelers": 113.2,
@@ -29,7 +29,7 @@
                         "hcv": 113.2,
                         "mcv": 113.2
                     },
-                    "tyreCost": {
+                    "tyre_cost": {
                         "small_cars": 99.2,
                         "big_cars": 99.2,
                         "two_wheelers": 104.0,
@@ -39,7 +39,7 @@
                         "hcv": 97.5,
                         "mcv": 97.5
                     },
-                    "spareParts": {
+                    "spare_parts": {
                         "small_cars": 113.2,
                         "big_cars": 113.2,
                         "two_wheelers": 113.2,
@@ -49,7 +49,7 @@
                         "hcv": 114.1,
                         "mcv": 114.1
                     },
-                    "fixedDepreciation": {
+                    "fixed_depreciation": {
                         "small_cars": 113.8,
                         "big_cars": 113.8,
                         "two_wheelers": 113.8,
@@ -60,7 +60,7 @@
                         "mcv": 113.8
                     }
                 },
-                "commodityHoldingCost": {
+                "commodity_holding_cost": {
                     "small_cars": 101.7,
                     "big_cars": 101.7,
                     "two_wheelers": 101.7,
@@ -70,16 +70,16 @@
                     "hcv": 101.7,
                     "mcv": 101.7
                 },
-                "passengerCrewCost": {
+                "passenger_crew_cost": {
                     "passenger_cost": 121.2,
                     "crew_cost": 121.2
                 },
-                "medicalCost": {
+                "medical_cost": {
                     "fatal": 132.5,
                     "major": 132.5,
                     "minor": 132.5
                 },
-                "votCost": {
+                "vot_cost": {
                     "small_cars": 121.2,
                     "big_cars": 121.2,
                     "two_wheelers": 121.2,
@@ -98,10 +98,10 @@
                 "year": 2020,
                 "is_custom": false,
                 "remark": "Official WPI index values for 2020",
-                "hash": "sha256:6ec90a93f46a76706344c393ac710e43e89321939f665777a2d393e72f37155a"
+                "hash": "sha256:e45c2a444232277708cb701c7b94e85e7b227db4c569a77f91558588ba316cec"
             },
             "data": {
-                "fuelCost": {
+                "fuel_cost": {
                     "petrol": 74.2,
                     "diesel": 79.4,
                     "engine_oil": 134.0,
@@ -109,7 +109,7 @@
                     "grease": 78.1
                 },
                 "vehicle_cost": {
-                    "propertyDamage": {
+                    "property_damage": {
                         "small_cars": 115.5,
                         "big_cars": 115.5,
                         "two_wheelers": 115.5,
@@ -119,7 +119,7 @@
                         "hcv": 115.5,
                         "mcv": 115.5
                     },
-                    "tyreCost": {
+                    "tyre_cost": {
                         "small_cars": 98.7,
                         "big_cars": 98.7,
                         "two_wheelers": 102.0,
@@ -129,7 +129,7 @@
                         "hcv": 96.1,
                         "mcv": 96.1
                     },
-                    "spareParts": {
+                    "spare_parts": {
                         "small_cars": 115.5,
                         "big_cars": 115.5,
                         "two_wheelers": 115.5,
@@ -139,7 +139,7 @@
                         "hcv": 114.2,
                         "mcv": 114.2
                     },
-                    "fixedDepreciation": {
+                    "fixed_depreciation": {
                         "small_cars": 116.9,
                         "big_cars": 116.9,
                         "two_wheelers": 116.9,
@@ -150,7 +150,7 @@
                         "mcv": 116.9
                     }
                 },
-                "commodityHoldingCost": {
+                "commodity_holding_cost": {
                     "small_cars": 93.3,
                     "big_cars": 93.3,
                     "two_wheelers": 93.3,
@@ -160,16 +160,16 @@
                     "hcv": 93.3,
                     "mcv": 93.3
                 },
-                "passengerCrewCost": {
+                "passenger_crew_cost": {
                     "passenger_cost": 121.8,
                     "crew_cost": 121.8
                 },
-                "medicalCost": {
+                "medical_cost": {
                     "fatal": 135.8,
                     "major": 135.8,
                     "minor": 135.8
                 },
-                "votCost": {
+                "vot_cost": {
                     "small_cars": 121.8,
                     "big_cars": 121.8,
                     "two_wheelers": 121.8,
@@ -188,10 +188,10 @@
                 "year": 2021,
                 "is_custom": false,
                 "remark": "Official WPI index values for 2021",
-                "hash": "sha256:da31f482eb8288469ffbffc8bdda0b90f51acddd38ac6651de63a7b161ead290"
+                "hash": "sha256:9993c13d6a7d3fb66e64d9cb243bb0e75f4c7334f4cbfe01eafcf359b31526f6"
             },
             "data": {
-                "fuelCost": {
+                "fuel_cost": {
                     "petrol": 109.9,
                     "diesel": 114.7,
                     "engine_oil": 157.8,
@@ -199,7 +199,7 @@
                     "grease": 113.8
                 },
                 "vehicle_cost": {
-                    "propertyDamage": {
+                    "property_damage": {
                         "small_cars": 120.6,
                         "big_cars": 120.6,
                         "two_wheelers": 120.6,
@@ -209,7 +209,7 @@
                         "hcv": 120.6,
                         "mcv": 120.6
                     },
-                    "tyreCost": {
+                    "tyre_cost": {
                         "small_cars": 102.8,
                         "big_cars": 102.8,
                         "two_wheelers": 105.9,
@@ -219,7 +219,7 @@
                         "hcv": 103.2,
                         "mcv": 103.2
                     },
-                    "spareParts": {
+                    "spare_parts": {
                         "small_cars": 120.6,
                         "big_cars": 120.6,
                         "two_wheelers": 120.6,
@@ -229,7 +229,7 @@
                         "hcv": 115.8,
                         "mcv": 115.8
                     },
-                    "fixedDepreciation": {
+                    "fixed_depreciation": {
                         "small_cars": 121.1,
                         "big_cars": 121.1,
                         "two_wheelers": 121.1,
@@ -240,7 +240,7 @@
                         "mcv": 121.1
                     }
                 },
-                "commodityHoldingCost": {
+                "commodity_holding_cost": {
                     "small_cars": 116.1,
                     "big_cars": 116.1,
                     "two_wheelers": 116.1,
@@ -250,16 +250,16 @@
                     "hcv": 116.1,
                     "mcv": 116.1
                 },
-                "passengerCrewCost": {
+                "passenger_crew_cost": {
                     "passenger_cost": 135,
                     "crew_cost": 135
                 },
-                "medicalCost": {
+                "medical_cost": {
                     "fatal": 139.5,
                     "major": 139.5,
                     "minor": 139.5
                 },
-                "votCost": {
+                "vot_cost": {
                     "small_cars": 135,
                     "big_cars": 135,
                     "two_wheelers": 135,
@@ -278,10 +278,10 @@
                 "year": 2022,
                 "is_custom": false,
                 "remark": "Official WPI index values for 2022",
-                "hash": "sha256:bfeb0bc185b1a25e7e3a7330c28704356834c029cab7ffd37eb5eb076db14ca5"
+                "hash": "sha256:518c5f4899e7b4879f29c17e65274fe9b501dcfb6954713ba84c6c7d1228dd74"
             },
             "data": {
-                "fuelCost": {
+                "fuel_cost": {
                     "petrol": 159.8,
                     "diesel": 183.5,
                     "engine_oil": 174.7,
@@ -289,7 +289,7 @@
                     "grease": 168.2
                 },
                 "vehicle_cost": {
-                    "propertyDamage": {
+                    "property_damage": {
                         "small_cars": 128.5,
                         "big_cars": 128.5,
                         "two_wheelers": 128.5,
@@ -299,7 +299,7 @@
                         "hcv": 128.5,
                         "mcv": 128.5
                     },
-                    "tyreCost": {
+                    "tyre_cost": {
                         "small_cars": 109.9,
                         "big_cars": 109.9,
                         "two_wheelers": 116.4,
@@ -309,7 +309,7 @@
                         "hcv": 110.5,
                         "mcv": 110.5
                     },
-                    "spareParts": {
+                    "spare_parts": {
                         "small_cars": 128.5,
                         "big_cars": 128.5,
                         "two_wheelers": 128.5,
@@ -319,7 +319,7 @@
                         "hcv": 116.7,
                         "mcv": 116.7
                     },
-                    "fixedDepreciation": {
+                    "fixed_depreciation": {
                         "small_cars": 127.1,
                         "big_cars": 127.1,
                         "two_wheelers": 127.1,
@@ -330,7 +330,7 @@
                         "mcv": 127.1
                     }
                 },
-                "commodityHoldingCost": {
+                "commodity_holding_cost": {
                     "small_cars": 155.2,
                     "big_cars": 155.2,
                     "two_wheelers": 155.2,
@@ -340,16 +340,16 @@
                     "hcv": 155.2,
                     "mcv": 155.2
                 },
-                "passengerCrewCost": {
+                "passenger_crew_cost": {
                     "passenger_cost": 151.3,
                     "crew_cost": 151.3
                 },
-                "medicalCost": {
+                "medical_cost": {
                     "fatal": 140.5,
                     "major": 140.5,
                     "minor": 140.5
                 },
-                "votCost": {
+                "vot_cost": {
                     "small_cars": 151.3,
                     "big_cars": 151.3,
                     "two_wheelers": 151.3,
@@ -368,10 +368,10 @@
                 "year": 2023,
                 "is_custom": false,
                 "remark": "Official WPI index values for 2023",
-                "hash": "sha256:5d61a459f2fc28d7cd117f414087a6bd5b85830f8629b456ab211a9294bc68c6"
+                "hash": "sha256:a9402318d98d3f83692d5c303f502421e8c13acb6a7589b485d0fcc4b796bc8a"
             },
             "data": {
-                "fuelCost": {
+                "fuel_cost": {
                     "petrol": 158.9,
                     "diesel": 174.2,
                     "engine_oil": 188.0,
@@ -379,7 +379,7 @@
                     "grease": 160.1
                 },
                 "vehicle_cost": {
-                    "propertyDamage": {
+                    "property_damage": {
                         "small_cars": 128.2,
                         "big_cars": 128.2,
                         "two_wheelers": 128.2,
@@ -389,7 +389,7 @@
                         "hcv": 128.2,
                         "mcv": 128.2
                     },
-                    "tyreCost": {
+                    "tyre_cost": {
                         "small_cars": 111.5,
                         "big_cars": 111.5,
                         "two_wheelers": 119.8,
@@ -399,7 +399,7 @@
                         "hcv": 114.4,
                         "mcv": 114.4
                     },
-                    "spareParts": {
+                    "spare_parts": {
                         "small_cars": 128.2,
                         "big_cars": 128.2,
                         "two_wheelers": 128.2,
@@ -409,7 +409,7 @@
                         "hcv": 116.7,
                         "mcv": 116.7
                     },
-                    "fixedDepreciation": {
+                    "fixed_depreciation": {
                         "small_cars": 128.0,
                         "big_cars": 128.0,
                         "two_wheelers": 128.0,
@@ -420,7 +420,7 @@
                         "mcv": 128.0
                     }
                 },
-                "commodityHoldingCost": {
+                "commodity_holding_cost": {
                     "small_cars": 152.7,
                     "big_cars": 152.7,
                     "two_wheelers": 152.7,
@@ -430,16 +430,16 @@
                     "hcv": 152.7,
                     "mcv": 152.7
                 },
-                "passengerCrewCost": {
+                "passenger_crew_cost": {
                     "passenger_cost": 151.3,
                     "crew_cost": 151.3
                 },
-                "medicalCost": {
+                "medical_cost": {
                     "fatal": 142.5,
                     "major": 142.5,
                     "minor": 142.5
                 },
-                "votCost": {
+                "vot_cost": {
                     "small_cars": 151.3,
                     "big_cars": 151.3,
                     "two_wheelers": 151.3,
@@ -458,10 +458,10 @@
                 "year": 2024,
                 "is_custom": false,
                 "remark": "Official WPI index values for 2024",
-                "hash": "sha256:0e3c38638a64711dce7e9ac739ad685eba3eacf442b006b2e878165419c66d74"
+                "hash": "sha256:e7c25800f87fcb044e38087a1d46f337394d3167af507c11dd737387ac30bdf4"
             },
             "data": {
-                "fuelCost": {
+                "fuel_cost": {
                     "petrol": 154.3,
                     "diesel": 167.4,
                     "engine_oil": 190.2,
@@ -469,7 +469,7 @@
                     "grease": 156.8
                 },
                 "vehicle_cost": {
-                    "propertyDamage": {
+                    "property_damage": {
                         "small_cars": 129.0,
                         "big_cars": 129.0,
                         "two_wheelers": 129.0,
@@ -479,7 +479,7 @@
                         "hcv": 129.0,
                         "mcv": 129.0
                     },
-                    "tyreCost": {
+                    "tyre_cost": {
                         "small_cars": 111.5,
                         "big_cars": 111.5,
                         "two_wheelers": 117.9,
@@ -489,7 +489,7 @@
                         "hcv": 114.1,
                         "mcv": 114.1
                     },
-                    "spareParts": {
+                    "spare_parts": {
                         "small_cars": 129.0,
                         "big_cars": 129.0,
                         "two_wheelers": 129.0,
@@ -499,7 +499,7 @@
                         "hcv": 116.0,
                         "mcv": 116.0
                     },
-                    "fixedDepreciation": {
+                    "fixed_depreciation": {
                         "small_cars": 129.6,
                         "big_cars": 129.6,
                         "two_wheelers": 129.6,
@@ -510,7 +510,7 @@
                         "mcv": 129.6
                     }
                 },
-                "commodityHoldingCost": {
+                "commodity_holding_cost": {
                     "small_cars": 150.4,
                     "big_cars": 150.4,
                     "two_wheelers": 150.4,
@@ -520,16 +520,16 @@
                     "hcv": 150.4,
                     "mcv": 150.4
                 },
-                "passengerCrewCost": {
+                "passenger_crew_cost": {
                     "passenger_cost": 154,
                     "crew_cost": 154
                 },
-                "medicalCost": {
+                "medical_cost": {
                     "fatal": 144.0,
                     "major": 144.0,
                     "minor": 144.0
                 },
-                "votCost": {
+                "vot_cost": {
                     "small_cars": 154,
                     "big_cars": 154,
                     "two_wheelers": 154,
@@ -548,10 +548,10 @@
                 "year": 2025,
                 "is_custom": false,
                 "remark": "Official WPI index values for 2025",
-                "hash": "sha256:6860b7f2a7f6ec39d5047e8bb282bedebb1ce18918fe84b6435de11c40899d8d"
+                "hash": "sha256:5560c5d22a7a90de1eaeb836c3c21075a29ccfd84db45148f7b1ff205a1f9155"
             },
             "data": {
-                "fuelCost": {
+                "fuel_cost": {
                     "petrol": 146.97,
                     "diesel": 161.45,
                     "engine_oil": 190.2,
@@ -559,7 +559,7 @@
                     "grease": 150.73
                 },
                 "vehicle_cost": {
-                    "propertyDamage": {
+                    "property_damage": {
                         "small_cars": 130.02,
                         "big_cars": 130.02,
                         "two_wheelers": 130.02,
@@ -569,7 +569,7 @@
                         "hcv": 130.02,
                         "mcv": 130.02
                     },
-                    "tyreCost": {
+                    "tyre_cost": {
                         "small_cars": 111.76,
                         "big_cars": 111.76,
                         "two_wheelers": 118.58,
@@ -579,7 +579,7 @@
                         "hcv": 116.28,
                         "mcv": 116.28
                     },
-                    "spareParts": {
+                    "spare_parts": {
                         "small_cars": 129.19,
                         "big_cars": 129.19,
                         "two_wheelers": 129.19,
@@ -589,7 +589,7 @@
                         "hcv": 115.23,
                         "mcv": 115.23
                     },
-                    "fixedDepreciation": {
+                    "fixed_depreciation": {
                         "small_cars": 130.46,
                         "big_cars": 130.46,
                         "two_wheelers": 130.46,
@@ -600,7 +600,7 @@
                         "mcv": 130.46
                     }
                 },
-                "commodityHoldingCost": {
+                "commodity_holding_cost": {
                     "small_cars": 146.58,
                     "big_cars": 146.58,
                     "two_wheelers": 146.58,
@@ -610,16 +610,16 @@
                     "hcv": 146.58,
                     "mcv": 146.58
                 },
-                "passengerCrewCost": {
+                "passenger_crew_cost": {
                     "passenger_cost": 154.93,
                     "crew_cost": 154.93
                 },
-                "medicalCost": {
+                "medical_cost": {
                     "fatal": 146.48,
                     "major": 146.48,
                     "minor": 146.48
                 },
-                "votCost": {
+                "vot_cost": {
                     "small_cars": 154.93,
                     "big_cars": 154.93,
                     "two_wheelers": 154.93,

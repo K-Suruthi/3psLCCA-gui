@@ -117,8 +117,10 @@ LANE_TYPES = [
     },
 ]
 
+_NONE_LANE = "— Select —"
 _BY_NAME = {lt["name"]: lt for lt in LANE_TYPES}
-_LANE_NAMES = [lt["name"] for lt in LANE_TYPES]
+_BY_CODE = {lt["code"]: lt["name"] for lt in LANE_TYPES}
+_LANE_NAMES = [_NONE_LANE] + [lt["name"] for lt in LANE_TYPES]
 
 _VEHICLES = [
     ("small_cars", "Small Car"),
@@ -147,6 +149,7 @@ TRAFFIC_FIELDS = [
         "combo",
         options=_LANE_NAMES,
         required=True,
+        default=_NONE_LANE,
     ),
     FieldDef(
         "carriage_width_in_m",
@@ -197,13 +200,13 @@ TRAFFIC_FIELDS = [
         "Road Roughness",
         "",
         "float",
-        (2000.0, 99_999.0, 2),
+        (0.01, 99_999.0, 2),
         unit="(mm/km)",
         required=True,
         warn=(
             0.01,
             10000.0,
-            "Road Roughness is 0 or unusually high — please verify the value",
+            "Road Roughness is unusually low or high — please verify the value",
         ),
     ),
     FieldDef(
@@ -279,8 +282,13 @@ TRAFFIC_FIELDS = [
         "Work Zone Multiplier",
         "",
         "float",
-        (0.0, 99.0, 2),
+        (0.0, 1.0, 4),
         required=True,
+        warn=(
+            0.001,
+            1.0,
+            "Work Zone Multiplier is 0 — work zone accident scaling will be disabled",
+        ),
     ),
     Section("Traffic Flow"),
     FieldDef(
@@ -717,10 +725,23 @@ class TrafficData(ScrollableForm):
         btn_row.addWidget(btn_clear)
         btn_row.addStretch()
 
+        btn_validate = QPushButton("Validate this page")
+        btn_validate.setMinimumHeight(35)
+        btn_validate.setFixedWidth(160)
+        btn_validate.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        btn_validate.clicked.connect(self._on_validate_clicked)
+        btn_row.addWidget(btn_validate)
+
         btn_widget = QWidget()
         btn_widget.setLayout(btn_row)
         btn_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         main_form.addRow(btn_widget)
+
+        self._val_result_label = QLabel()
+        self._val_result_label.setWordWrap(True)
+        self._val_result_label.setVisible(False)
+        self._val_result_label.setContentsMargins(0, 4, 0, 4)
+        main_form.addRow(self._val_result_label)
 
     # ── Slot handlers ─────────────────────────────────────────────────────────
 
@@ -732,7 +753,13 @@ class TrafficData(ScrollableForm):
     def _on_lane_changed(self, _idx: int):
         if self._suppress_lane_signal:
             return
-        lane = _BY_NAME.get(self.alternate_road_carriageway.currentText())
+        text = self.alternate_road_carriageway.currentText()
+        if text == _NONE_LANE:
+            self.carriage_width_in_m.setValue(0.0)
+            self.hourly_capacity.setValue(0)
+            self._on_field_changed()
+            return
+        lane = _BY_NAME.get(text)
         if not lane:
             return
         w = lane.get("width")
@@ -814,12 +841,15 @@ class TrafficData(ScrollableForm):
     def collect_data(self) -> dict:
         data = super().get_data_dict()
 
-        # Map Back the alternate_road_carriageway to Lane Codes
+        # Map alternate_road_carriageway display name back to IRC code
         alternate_road_carriageway = data.get("alternate_road_carriageway")
-        for dic in LANE_TYPES:
-            if dic.get("name") == alternate_road_carriageway:
-                data["alternate_road_carriageway"] = dic.get("code")
-                break
+        if alternate_road_carriageway and alternate_road_carriageway != _NONE_LANE:
+            for dic in LANE_TYPES:
+                if dic.get("name") == alternate_road_carriageway:
+                    data["alternate_road_carriageway"] = dic.get("code")
+                    break
+        else:
+            data["alternate_road_carriageway"] = ""
 
         data["mode"] = self.mode.currentText()
         data["remarks"] = self._remarks.to_html()
@@ -853,6 +883,7 @@ class TrafficData(ScrollableForm):
         data["wpi"] = {
             "selected_profile_id": current_profile.id if current_profile else None,
             "selected_profile_name": current_profile.name if current_profile else None,
+            "selected_profile_year": current_profile.year if current_profile else None,
             "profile_type": (
                 "custom" if (current_profile and current_profile.is_custom) else "db"
             ),
@@ -880,8 +911,13 @@ class TrafficData(ScrollableForm):
                 bool(data.get("force_free_flow_off_peak", False))
             )
 
+            # Translate stored IRC code back to display name for the combo
+            load_data = dict(data)
+            code = load_data.get("alternate_road_carriageway", "")
+            load_data["alternate_road_carriageway"] = _BY_CODE.get(code, _NONE_LANE)
+
             self.mode.blockSignals(True)
-            super().load_data_dict(data)
+            super().load_data_dict(load_data)
             self.mode.blockSignals(False)
             self._stack.setCurrentIndex(self.mode.currentIndex())
 
@@ -955,6 +991,12 @@ class TrafficData(ScrollableForm):
                 attr = getattr(self, f.key, None)
                 if isinstance(attr, (QSpinBox, QDoubleSpinBox)):
                     attr.setValue(attr.minimum())
+        if hasattr(self, "alternate_road_carriageway"):
+            self._suppress_lane_signal = True
+            idx = self.alternate_road_carriageway.findText(_NONE_LANE)
+            if idx >= 0:
+                self.alternate_road_carriageway.setCurrentIndex(idx)
+            self._suppress_lane_signal = False
         # Reset WPI to first DB profile
         self._wpi_selector.refresh()
         first = self._wpi_selector.current_profile()
@@ -962,6 +1004,7 @@ class TrafficData(ScrollableForm):
             self._wpi_table.load_from_data(first.data)
             self._wpi_table.set_editable(first.is_custom)
         self.blockSignals(False)
+        self._val_result_label.setVisible(False)
         self._on_field_changed()
 
     # ── Validation / data export ──────────────────────────────────────────────
@@ -983,30 +1026,74 @@ class TrafficData(ScrollableForm):
             errors = result["errors"]
             warnings = result["warnings"]
 
-            if not errors:
-                # At least one vehicle must have traffic data for IS SP30 to compute
-                vehicle_data = self._vehicle_table.collect_to_dict()
-                total_vpd = sum(v["vehicles_per_day"] for v in vehicle_data.values())
-                if total_vpd == 0:
-                    warnings.append(
-                        "No vehicle traffic data — all vehicles per day are 0"
+            # Carriageway must be selected
+            if hasattr(self, "alternate_road_carriageway"):
+                if self.alternate_road_carriageway.currentText() == _NONE_LANE:
+                    errors.append("Alternate Road Carriageway must be selected")
+                    self.alternate_road_carriageway.setStyleSheet(
+                        "QComboBox { border: 1px solid #dc3545; }"
                     )
 
-                # Severity distribution must sum to 100% when there is traffic
+            vehicle_data = self._vehicle_table.collect_to_dict()
+            total_vpd = sum(v["vehicles_per_day"] for v in vehicle_data.values())
+
+            if total_vpd == 0:
+                # ADT = 0 — user opts out of road user cost; skip all transport checks
+                warnings.append(
+                    "No vehicle traffic data — all vehicles per day are 0"
+                )
+            else:
+                # Per-vehicle accident % must sum to 100 (±0.1)
+                total_acc = sum(v["accident_percentage"] for v in vehicle_data.values())
+                if abs(total_acc - 100.0) > 0.1:
+                    errors.append(
+                        f"Vehicle accident percentages must sum to 100% — currently {total_acc:.1f}%"
+                    )
+
+                # Accident severity distribution must sum to 100%
                 total_sev = (
                     self.severity_minor.value()
                     + self.severity_major.value()
                     + self.severity_fatal.value()
                 )
-                if total_vpd != 0 and round(total_sev, 2) != 100.0:
+                if abs(total_sev - 100.0) > 1e-4:
                     errors.append(
                         f"Accident severity must sum to 100% — currently {total_sev:.1f}%"
                     )
 
-            # WPI values must not be zero
+                # PWR must be > 0 for hcv/mcv when their VPD > 0
+                _veh_label = dict(_VEHICLES)
+                for key in _HAS_PWR:
+                    veh = vehicle_data.get(key, {})
+                    if veh.get("vehicles_per_day", 0) > 0 and veh.get("pwr", 0.0) <= 0:
+                        errors.append(
+                            f"PWR must be > 0 for {_veh_label.get(key, key)} when vehicles per day > 0"
+                        )
+
+                # Hourly capacity must be > 0
+                if hasattr(self, "hourly_capacity") and self.hourly_capacity.value() == 0:
+                    errors.append("Hourly Capacity cannot be 0")
+                    self.hourly_capacity.setStyleSheet("border: 1px solid #dc3545;")
+
+                # Peak hour validation
+                n_peak = self.num_peak_hours.value() if hasattr(self, "num_peak_hours") else 0
+                if n_peak > 0:
+                    peak_data = self._peak_table.collect_to_dict()
+                    peak_fractions = list(peak_data.values())
+                    zero_peaks = [i + 1 for i, v in enumerate(peak_fractions) if v == 0.0]
+                    if zero_peaks:
+                        hrs = ", ".join(f"Peak Hour {h}" for h in zero_peaks)
+                        errors.append(f"Peak hour proportion cannot be 0: {hrs}")
+                    total_peak = sum(peak_fractions)
+                    if total_peak > 1.0 + 1e-6:
+                        errors.append(
+                            f"Peak hour proportions sum to {total_peak * 100:.1f}% — must be \u2264 100%"
+                        )
+
+            # WPI values must not be zero (checked regardless of ADT)
             errors.extend(self._wpi_table.validate())
 
-        else:  # GLOBAL — road user cost entered directly, not computed via IS SP30
+        else:  # GLOBAL
             result = validate_form(OUTSIDE_INDIA_FIELDS, self)
             errors = result["errors"]
             warnings = result["warnings"]
@@ -1018,6 +1105,24 @@ class TrafficData(ScrollableForm):
                 self.road_user_cost_per_day.setStyleSheet("border: 1px solid orange;")
 
         return {"errors": errors, "warnings": warnings}
+
+    def _on_validate_clicked(self):
+        result = self.validate()
+        errors = result.get("errors", [])
+        warnings = result.get("warnings", [])
+
+        if not errors and not warnings:
+            html = '<span style="color:#2e7d32; font-weight:bold;">&#10004; All checks passed</span>'
+        else:
+            lines = []
+            for e in errors:
+                lines.append(f'<span style="color:#dc3545;">&#10006; {e}</span>')
+            for w in warnings:
+                lines.append(f'<span style="color:#e65100;">&#9888; {w}</span>')
+            html = "<br>".join(lines)
+
+        self._val_result_label.setText(html)
+        self._val_result_label.setVisible(True)
 
     def get_data(self) -> dict:
         return {"chunk": CHUNK, "data": self.collect_data()}

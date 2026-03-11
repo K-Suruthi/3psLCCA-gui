@@ -164,41 +164,82 @@ class OutputsPage(ScrollableForm):
             self.run_calculation()
 
     def run_calculation(self):
-        from pprint import pprint
         all_data = {}
         for name, page in self._pages.items():
             if hasattr(page, "get_data"):
                 result = page.get_data()
-                # print("===============================")
-                # pprint(result)
-                # print("===============================")
                 all_data[result["chunk"]] = result["data"]
-        
-        # Print to check
-        print("=========INPUT=OBJECT=====================")
-        pprint(all_data)
-        print("==========================================")
 
-        # Pass all_data to calculator
-        is_global, data_object = self._prepare_data_object(all_data)
-        wpi_metadata = None
-        if not is_global:
-            # If Global than WPI is not needed
-            wpi_metadata = self._prepare_wpi_object(all_data)
-        life_cycle_construction_cost_breakdown = self._prepare_life_cycle_construction_cost(all_data)
-
-        from three_ps_lcca_core.core.main import run_full_lcc_analysis
         try:
+            is_global, data_object = self._prepare_data_object(all_data)
+            wpi_metadata = None
+            if not is_global:
+                wpi_metadata = self._prepare_wpi_object(all_data)
+            life_cycle_construction_cost_breakdown = self._prepare_life_cycle_construction_cost(all_data)
+
+            from three_ps_lcca_core.core.main import run_full_lcc_analysis
             results = run_full_lcc_analysis(
                 data_object, life_cycle_construction_cost_breakdown, wpi=wpi_metadata, debug=False
             )
-
-            print("LCC Analysis Completed Successfully.")
-            print(results)
+            self._show_calculation_success(results)
 
         except Exception as e:
-            print("Error during LCC analysis:")
-            print(e)
+            self._show_calculation_error(e)
+
+    def _show_calculation_error(self, error: Exception):
+        self._clear_status()
+        banner = QGroupBox()
+        banner.setStyleSheet("QGroupBox { border: 2px solid #dc3545; padding: 8px; }")
+        layout = QVBoxLayout(banner)
+
+        title = QLabel("🛑  Calculation Error")
+        title.setStyleSheet("color: #b02a37; font-weight: bold; font-size: 13px;")
+        layout.addWidget(title)
+
+        msg = QLabel(str(error))
+        msg.setWordWrap(True)
+        msg.setStyleSheet("color: #b02a37; font-family: monospace;")
+        layout.addWidget(msg)
+
+        self._status_layout.addWidget(banner)
+        self._status_layout.addStretch()
+
+    def _show_calculation_success(self, results):
+        from pprint import pprint
+        print("=========LCC RESULTS=====================")
+        pprint(results)
+        print("==========================================")
+
+        self._clear_status()
+
+        # ── Success banner ─────────────────────────────────────────────────
+        banner = QGroupBox()
+        banner.setStyleSheet("QGroupBox { border: 2px solid #198754; padding: 8px; }")
+        QVBoxLayout(banner).addWidget(QLabel("✅  Calculation completed successfully."))
+        self._status_layout.addWidget(banner)
+
+        # ── Warnings ───────────────────────────────────────────────────────
+        for w in results.get("warnings", []):
+            lbl = QLabel(f"⚠ {w}")
+            lbl.setStyleSheet("color: #856404;")
+            lbl.setWordWrap(True)
+            self._status_layout.addWidget(lbl)
+
+        # ── Chart ──────────────────────────────────────────────────────────
+        try:
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+            from .lcc_plot import create_lcc_figure
+
+            fig = create_lcc_figure(results)
+            canvas = FigureCanvasQTAgg(fig)
+            canvas.setMinimumHeight(480)
+            self._status_layout.addWidget(canvas)
+        except Exception as e:
+            err = QLabel(f"Chart error: {e}")
+            err.setStyleSheet("color: gray; font-style: italic;")
+            self._status_layout.addWidget(err)
+
+        self._status_layout.addStretch()
     
     #==========Prepare-Mapping-for-Core==============================================
     
@@ -234,8 +275,9 @@ class OutputsPage(ScrollableForm):
         """
         from three_ps_lcca_core.inputs.wpi import WPIMetaData
 
-        wpi_dict = data.get("traffic_and_road_data").get("wpi").get("data_snapshot").get("ratio")
-        year = int(data.get("traffic_and_road_data").get("wpi").get("selected_profile_name"))
+        wpi_data = data.get("traffic_and_road_data").get("wpi")
+        wpi_dict = wpi_data.get("data_snapshot").get("ratio")
+        year = int(wpi_data.get("selected_profile_year") or wpi_data.get("selected_profile_name", 0))
         
         return WPIMetaData.from_dict(
             {
@@ -251,7 +293,6 @@ class OutputsPage(ScrollableForm):
         """
         from three_ps_lcca_core.inputs.input import (
             InputMetaData,
-            ProjectMetaData,
             GeneralParameters,
             TrafficAndRoadData,
             VehicleData,
@@ -386,18 +427,6 @@ class OutputsPage(ScrollableForm):
         object = None
 
         if not use_global_road_user_calculations:
-            #--------------Prepare-Project-Metadata-Start-------------------------------------------------
-            description = data.get("general_info").get("project_description")
-            standard    = "IRC 106:1990 / IRC SP 30-2019"
-            country     = data.get("general_info").get("project_country")
-
-            project_metadata = ProjectMetaData(
-                description  = description,
-                standard     = standard,
-                country      = country,
-            )
-            #--------------Prepare-Project-Metadata-End-------------------------------------------------
-
             #------------------------------------Traffic-and-Road-Data-India-Start--------------------------------------------
             _traffic_road_data = data.get("traffic_and_road_data")
             _traffic_vehicle_data = _traffic_road_data.get("vehicle_data")
@@ -498,7 +527,6 @@ class OutputsPage(ScrollableForm):
             #------------------------------------Traffic-and-Road-Data-India-End--------------------------------------------
         
             object = InputMetaData(
-                project_metadata                 = project_metadata,
                 general_parameters               = general_parameters,
                 traffic_and_road_data            = traffic_and_road_data,
                 maintenance_and_stage_parameters = maintenance_and_stage_parameters,
