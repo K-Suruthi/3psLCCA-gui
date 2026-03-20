@@ -491,10 +491,26 @@ _REQUIRED_ITEM_KEYS = (
     "carbon_emission", "carbon_emission_units_den",
     "conversion_factor", "carbon_emission_src",
 )
+_ITEM_DEFAULTS = {
+    "rate":                      "not_available",
+    "rate_src":                  "not_available",
+    "carbon_emission":           "not_available",
+    "carbon_emission_units_den": "not_available",
+    "conversion_factor":         "not_available",
+    "carbon_emission_src":       "not_available",
+}
 
 def _validate_item(item: dict) -> bool:
-    """Return True if item has all required schema keys and is usable."""
-    return all(k in item for k in _REQUIRED_ITEM_KEYS)
+    """
+    Ensure item has all required schema keys, filling optional ones with
+    'not_available' defaults rather than dropping the item entirely.
+    Returns False only if the truly essential keys (name, unit) are missing.
+    """
+    if not item.get("name") or not item.get("unit"):
+        return False
+    for key, default in _ITEM_DEFAULTS.items():
+        item.setdefault(key, default)
+    return True
 
 
 def _load_material_suggestions(db_keys: list = None, comp_name: str = None) -> dict:
@@ -691,6 +707,7 @@ class MaterialDialog(QDialog):
         self._is_modified_by_user = False
         self._pre_allow_edit_source = None   # saved when "Allow editing" is checked
         self._sor_carbon_available = True    # False when SOR has no carbon data
+        self._db_original = {}              # immutable snapshot of DB values at suggestion time
 
         mat_name = (data.get("values", {}).get("material_name", "") if data else "") or comp_name
         if recyclability_only:
@@ -706,6 +723,8 @@ class MaterialDialog(QDialog):
 
         v = data.get("values", {}) if self.is_edit else {}
         s = data.get("state", {}) if self.is_edit else {}
+        # Restore the immutable DB snapshot saved when this material was first added
+        self._db_original = (data.get("meta", {}) if data else {}).get("db_original", {})
 
         # Migrate any custom units embedded in old project data → global DB
         _migrate_embedded_custom_units(v)
@@ -1157,18 +1176,17 @@ class MaterialDialog(QDialog):
         self._ui_ready = True
 
         # ── Re-apply DB lock when editing a previously SOR-filled material ──
-        # If the saved data came from a SOR suggestion and the user hasn't
-        # overridden it, lock the fields just as _on_suggestion_selected would.
         _src = (data.get("meta", {}).get("source", "manual") if data else "manual")
         if self.is_edit and _src in ("db", "db_modified", "custom_db", "custom_db_modified"):
-            # Always re-lock SOR fields when opening an edit dialog, regardless
-            # of whether the user previously customized values (_is_customized).
-            # Try to recover the original SOR item so the "Allow editing →
-            # uncheck" restore path works correctly.
             mat_name = v.get("material_name", "")
             self._sor_item = self._suggestions.get(mat_name)
             self._allow_edit_chk.setEnabled(True)
-            self._lock_autofilled_fields(True)
+            # Restore checkbox + lock state directly from what was saved
+            saved_allow_edit = s.get("allow_edit_checked", False)
+            self._allow_edit_chk.blockSignals(True)
+            self._allow_edit_chk.setChecked(saved_allow_edit)
+            self._allow_edit_chk.blockSignals(False)
+            self._lock_autofilled_fields(not saved_allow_edit)
 
     # ── SOR / suggestion helpers ──────────────────────────────────────────
 
@@ -1256,6 +1274,7 @@ class MaterialDialog(QDialog):
         self._sor_item = None
         self._sor_filled_name = None
         self._is_customized = False
+        self._db_original = {}
         self._user_edited_snapshot = {}
         self._lock_autofilled_fields(False)
         self._allow_edit_chk.blockSignals(True)
@@ -1546,6 +1565,22 @@ class MaterialDialog(QDialog):
             self._sor_filled_name = name
             self._is_customized = False
 
+            # Snapshot original DB values (written once; never overwritten on re-open)
+            if not self._db_original:
+                _db_key = item.get("db_key", "") or (
+                    self.sor_cb.currentData() if self.sor_cb else ""
+                )
+                self._db_original = {
+                    "unit":                      item.get("unit", ""),
+                    "rate":                      item.get("rate", ""),
+                    "rate_src":                  item.get("rate_src", ""),
+                    "carbon_emission":           item.get("carbon_emission", ""),
+                    "carbon_emission_units_den": item.get("carbon_emission_units_den", ""),
+                    "carbon_emission_src":       item.get("carbon_emission_src", ""),
+                    "conversion_factor":         item.get("conversion_factor", ""),
+                    "db_key":                    _db_key,
+                }
+
         finally:
             self._sor_filling = False
 
@@ -1625,6 +1660,60 @@ class MaterialDialog(QDialog):
                 si_val = cu["to_si"]
                 dim = cu["dimension"]
         return si_val, dim
+
+    _DB_NA = frozenset({"not_available", "", None})
+
+    def _compute_modified_fields(self) -> list:
+        """
+        Compare current dialog values against the immutable DB snapshot.
+        Returns a list of field names whose values differ from the DB original.
+        Empty list means either no DB source or no changes made.
+        """
+        orig = self._db_original
+        if not orig:
+            return []
+
+        modified = []
+
+        # Unit
+        orig_unit = orig.get("unit", "")
+        if orig_unit and self.unit_in.currentData() != orig_unit:
+            modified.append("unit")
+
+        # Rate
+        orig_rate = orig.get("rate", "")
+        if orig_rate not in self._DB_NA:
+            try:
+                if abs(float(self.rate_in.text() or 0) - float(orig_rate)) > 1e-9:
+                    modified.append("rate")
+            except (ValueError, TypeError):
+                pass
+
+        # Carbon emission factor
+        orig_em = orig.get("carbon_emission", "")
+        if orig_em not in self._DB_NA:
+            try:
+                if abs(float(self.carbon_em_in.text() or 0) - float(orig_em)) > 1e-9:
+                    modified.append("carbon_emission")
+            except (ValueError, TypeError):
+                pass
+
+        # Carbon denominator unit
+        orig_denom = orig.get("carbon_emission_units_den", "")
+        if orig_denom not in self._DB_NA:
+            if self.carbon_denom_cb.currentData() != orig_denom:
+                modified.append("carbon_emission_units_den")
+
+        # Conversion factor
+        orig_cf = orig.get("conversion_factor", "")
+        if orig_cf not in self._DB_NA and orig_cf not in (0, 0.0):
+            try:
+                if abs(float(self.conv_factor_in.text() or 0) - float(orig_cf)) > 1e-9:
+                    modified.append("conversion_factor")
+            except (ValueError, TypeError):
+                pass
+
+        return modified
 
     def _rebuild_unit_models(self, mat_sel: str = None, denom_sel: str = None):
         self.unit_in.blockSignals(True)
@@ -1867,6 +1956,11 @@ class MaterialDialog(QDialog):
             "_sor_db_key": self._sor_item.get("db_key", "") if self._sor_item else "",
             "_is_customized": self._is_customized if self._sor_item is not None else False,
             "_is_modified_by_user": self._is_modified_by_user,
+            "_db_original": self._db_original,
+            "_modified_fields": self._compute_modified_fields(),
+            "_allow_edit_checked": (
+                self._allow_edit_chk.isChecked() and self._allow_edit_chk.isEnabled()
+            ),
         }
 
     # ── Window close / Escape ─────────────────────────────────────────────

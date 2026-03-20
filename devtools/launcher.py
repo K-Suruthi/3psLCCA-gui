@@ -167,6 +167,26 @@ def _get_tools() -> list[dict]:
     except ImportError as e:
         tools.append(_error_card("Unit Manager", str(e)))
 
+    # ── Custom DB Viewer ───────────────────────────────────────────────────
+    try:
+        from custom_db_viewer_gui import CustomDbViewerDialog
+        tools.append({
+            "key":    "custom_db_viewer",
+            "icon":   "🗄",
+            "name":   "Custom DB Viewer",
+            "desc":   (
+                "Browse all user-created custom material databases (SOR).\n"
+                "Shows every material saved in data/user.db with all fields: rate, "
+                "emission factor, conversion factor, scrap rate, recovery %, grade, "
+                "type, and source attributions. Use this to verify what was saved "
+                "to custom databases from the Material Dialog."
+            ),
+            "accent": _GREEN,
+            "open":   lambda parent: _open_dialog(CustomDbViewerDialog, parent),
+        })
+    except ImportError as e:
+        tools.append(_error_card("Custom DB Viewer", str(e)))
+
     # ── File Integrity Checker ─────────────────────────────────────────────
     try:
         from integrity_tool_gui import IntegrityToolDialog

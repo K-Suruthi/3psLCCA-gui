@@ -117,12 +117,16 @@ class StructureManagerWidget(QWidget):
     def add_material(self, comp_name, values_dict, is_trash=False):
         now = datetime.datetime.now().isoformat()
 
-        included_carbon   = values_dict.pop("_included_in_carbon_emission", True)
+        included_carbon    = values_dict.pop("_included_in_carbon_emission", True)
         included_recycling = values_dict.pop("_included_in_recyclability", True)
-        from_sor          = values_dict.pop("_from_sor", False)
-        sor_db_key        = values_dict.pop("_sor_db_key", "")
-        is_modified       = values_dict.pop("_is_modified_by_user", False)
-        is_excel          = values_dict.pop("_is_excel_import", False)
+        allow_edit_checked = values_dict.pop("_allow_edit_checked", False)
+        from_sor           = values_dict.pop("_from_sor", False)
+        sor_db_key         = values_dict.pop("_sor_db_key", "")
+        is_excel           = values_dict.pop("_is_excel_import", False)
+        db_original        = values_dict.pop("_db_original", {})
+        modified_fields    = values_dict.pop("_modified_fields", [])
+        # Legacy flag — kept for backward compat; derived from modified_fields when available
+        is_modified        = bool(modified_fields) or values_dict.pop("_is_modified_by_user", False)
         values_dict.pop("_is_customized", None)
 
         # Compute source + source_db_key
@@ -149,11 +153,14 @@ class StructureManagerWidget(QWidget):
                 "modified_on": now,
                 "source": source,
                 "source_db_key": source_db_key,
+                "db_original": db_original,
+                "modified_fields": modified_fields,
             },
             "state": {
                 "in_trash": is_trash,
                 "included_in_carbon_emission": included_carbon,
                 "included_in_recyclability": included_recycling,
+                "allow_edit_checked": allow_edit_checked,
             },
         }
 
@@ -219,11 +226,15 @@ class StructureManagerWidget(QWidget):
 
                     included_carbon    = new_values.pop("_included_in_carbon_emission", True)
                     included_recycling = new_values.pop("_included_in_recyclability", True)
-                    new_is_modified    = new_values.pop("_is_modified_by_user", False)
+                    allow_edit_checked = new_values.pop("_allow_edit_checked", False)
                     new_values.pop("_from_sor", None)
                     new_values.pop("_sor_db_key", None)
                     new_values.pop("_is_customized", None)
                     new_values.pop("_is_excel_import", None)
+                    new_db_original    = new_values.pop("_db_original", None)
+                    new_modified_fields = new_values.pop("_modified_fields", [])
+                    # Legacy flag fallback
+                    new_is_modified    = bool(new_modified_fields) or new_values.pop("_is_modified_by_user", False)
 
                     # Upgrade source if user edited a DB-sourced material
                     current_source = item_to_edit["meta"].get("source", "manual")
@@ -236,8 +247,13 @@ class StructureManagerWidget(QWidget):
                     item_to_edit["values"] = new_values
                     item_to_edit["meta"]["modified_on"] = datetime.datetime.now().isoformat()
                     item_to_edit["meta"]["source"] = current_source
+                    item_to_edit["meta"]["modified_fields"] = new_modified_fields
+                    # Preserve original DB snapshot — only write if not already stored
+                    if new_db_original and not item_to_edit["meta"].get("db_original"):
+                        item_to_edit["meta"]["db_original"] = new_db_original
                     item_to_edit["state"]["included_in_carbon_emission"] = included_carbon
                     item_to_edit["state"]["included_in_recyclability"] = included_recycling
+                    item_to_edit["state"]["allow_edit_checked"] = allow_edit_checked
 
                     self.controller.engine.stage_update(
                         chunk_name=self.chunk_name, data=current_data

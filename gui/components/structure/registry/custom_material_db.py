@@ -39,22 +39,35 @@ class CustomMaterialDB:
         with self._connect() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS custom_materials (
-                    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    db_name                     TEXT    NOT NULL,
-                    name                        TEXT    NOT NULL,
-                    unit                        TEXT,
-                    rate                        REAL,
-                    rate_src                    TEXT,
-                    carbon_emission             TEXT,
-                    carbon_emission_units_den   TEXT,
-                    conversion_factor           TEXT,
-                    recycleable                 TEXT,
-                    material_type               TEXT,
-                    grade                       TEXT,
-                    created_at                  TEXT DEFAULT (datetime('now')),
-                    updated_at                  TEXT DEFAULT (datetime('now'))
+                    id                               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    db_name                          TEXT    NOT NULL,
+                    name                             TEXT    NOT NULL,
+                    unit                             TEXT,
+                    rate                             REAL,
+                    rate_src                         TEXT,
+                    carbon_emission                  TEXT,
+                    carbon_emission_units_den        TEXT,
+                    carbon_emission_src              TEXT,
+                    conversion_factor                TEXT,
+                    scrap_rate                       TEXT,
+                    post_demolition_recovery_pct     TEXT,
+                    recycleable                      TEXT,
+                    material_type                    TEXT,
+                    grade                            TEXT,
+                    created_at                       TEXT DEFAULT (datetime('now')),
+                    updated_at                       TEXT DEFAULT (datetime('now'))
                 )
             """)
+            # Migrate existing databases that pre-date the fuller schema
+            for col, typedef in (
+                ("carbon_emission_src",          "TEXT"),
+                ("scrap_rate",                   "TEXT"),
+                ("post_demolition_recovery_pct", "TEXT"),
+            ):
+                try:
+                    conn.execute(f"ALTER TABLE custom_materials ADD COLUMN {col} {typedef}")
+                except Exception:
+                    pass  # column already exists
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_db_name "
                 "ON custom_materials(db_name)"
@@ -87,8 +100,9 @@ class CustomMaterialDB:
             rows = conn.execute(
                 """
                 SELECT name, unit, rate, rate_src,
-                       carbon_emission, carbon_emission_units_den,
-                       conversion_factor, recycleable, material_type
+                       carbon_emission, carbon_emission_units_den, carbon_emission_src,
+                       conversion_factor, scrap_rate, post_demolition_recovery_pct,
+                       recycleable, material_type, grade
                 FROM   custom_materials
                 WHERE  db_name = ?
                 ORDER  BY name
@@ -98,16 +112,20 @@ class CustomMaterialDB:
         db_key = f"{CUSTOM_PREFIX}{db_name}"
         return [
             {
-                "name":                      r["name"],
-                "unit":                      r["unit"] or "",
-                "rate":                      r["rate"] if r["rate"] is not None else "not_available",
-                "rate_src":                  r["rate_src"] or "",
-                "carbon_emission":           r["carbon_emission"] or "not_available",
-                "carbon_emission_units_den": r["carbon_emission_units_den"] or "not_available",
-                "conversion_factor":         r["conversion_factor"] or "not_available",
-                "recycleable":               r["recycleable"] or "",
-                "type":                      r["material_type"] or "",
-                "db_key":                    db_key,
+                "name":                           r["name"],
+                "unit":                           r["unit"] or "",
+                "rate":                           r["rate"] if r["rate"] is not None else "not_available",
+                "rate_src":                       r["rate_src"] or "",
+                "carbon_emission":                r["carbon_emission"] or "not_available",
+                "carbon_emission_units_den":      r["carbon_emission_units_den"] or "not_available",
+                "carbon_emission_src":            r["carbon_emission_src"] or "",
+                "conversion_factor":              r["conversion_factor"] or "not_available",
+                "scrap_rate":                     r["scrap_rate"] or "",
+                "post_demolition_recovery_pct":   r["post_demolition_recovery_pct"] or "",
+                "recycleable":                    r["recycleable"] or "",
+                "type":                           r["material_type"] or "",
+                "grade":                          r["grade"] or "",
+                "db_key":                         db_key,
             }
             for r in rows
         ]
@@ -134,6 +152,12 @@ class CustomMaterialDB:
         cf = values.get("conversion_factor", None)
         cf_str = str(cf) if cf else "not_available"
 
+        scrap = values.get("scrap_rate", None)
+        scrap_str = str(scrap) if scrap else ""
+
+        recovery = values.get("post_demolition_recovery_percentage", None)
+        recovery_str = str(recovery) if recovery else ""
+
         recycleable = "Recyclable" if values.get("is_recyclable") else "Non-recyclable"
 
         with self._connect() as conn:
@@ -147,16 +171,18 @@ class CustomMaterialDB:
                     """
                     UPDATE custom_materials SET
                         unit=?, rate=?, rate_src=?,
-                        carbon_emission=?, carbon_emission_units_den=?,
-                        conversion_factor=?, recycleable=?,
-                        material_type=?, grade=?, updated_at=?
+                        carbon_emission=?, carbon_emission_units_den=?, carbon_emission_src=?,
+                        conversion_factor=?, scrap_rate=?, post_demolition_recovery_pct=?,
+                        recycleable=?, material_type=?, grade=?, updated_at=?
                     WHERE db_name=? AND name=?
                     """,
                     (
                         values.get("unit", ""),
                         values.get("rate") or None,
                         values.get("rate_source", ""),
-                        carbon_em_str, denom, cf_str, recycleable,
+                        carbon_em_str, denom,
+                        values.get("carbon_emission_src", ""),
+                        cf_str, scrap_str, recovery_str, recycleable,
                         values.get("type", ""), values.get("grade", ""),
                         now, db_name, name,
                     ),
@@ -166,17 +192,19 @@ class CustomMaterialDB:
                     """
                     INSERT INTO custom_materials
                         (db_name, name, unit, rate, rate_src,
-                         carbon_emission, carbon_emission_units_den,
-                         conversion_factor, recycleable,
-                         material_type, grade, created_at, updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                         carbon_emission, carbon_emission_units_den, carbon_emission_src,
+                         conversion_factor, scrap_rate, post_demolition_recovery_pct,
+                         recycleable, material_type, grade, created_at, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         db_name, name,
                         values.get("unit", ""),
                         values.get("rate") or None,
                         values.get("rate_source", ""),
-                        carbon_em_str, denom, cf_str, recycleable,
+                        carbon_em_str, denom,
+                        values.get("carbon_emission_src", ""),
+                        cf_str, scrap_str, recovery_str, recycleable,
                         values.get("type", ""), values.get("grade", ""),
                         now, now,
                     ),

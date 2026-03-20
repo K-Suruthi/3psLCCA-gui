@@ -1779,7 +1779,9 @@ def _emit_result(
                         included_recycle = values_dict.pop("_included_in_recyclability", True)
                         # Pop remaining private keys that add_material normally handles
                         for _k in ("_from_sor", "_sor_db_key", "_is_modified_by_user",
-                                   "_is_excel_import", "_is_customized"):
+                                   "_is_excel_import", "_is_customized",
+                                   "_db_original", "_modified_fields",
+                                   "_allow_edit_checked"):
                             values_dict.pop(_k, None)
 
                         _engine = manager.controller.engine

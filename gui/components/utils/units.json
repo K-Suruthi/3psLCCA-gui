@@ -11,7 +11,8 @@
     "Length": { "si": "m",   "common": { "metric": "m",   "imperial": "ft"  } },
     "Area":   { "si": "m2",  "common": { "metric": "m2",  "imperial": "ft2" } },
     "Volume": { "si": "m3",  "common": { "metric": "m3",  "imperial": "ft3" } },
-    "Count":  { "si": "nos", "common": { "metric": "nos", "imperial": "nos" } }
+    "Count":  { "si": "nos", "common": { "metric": "nos", "imperial": "nos" } },
+    "Time":   { "si": "s",   "common": { "metric": "yr",  "imperial": "yr"  } }
   },
 
   "_common": {
@@ -46,6 +47,38 @@
       "name":      "Lump Sum",
       "example":   "General or provisional work items",
       "aliases":   ["LS", "L.S.", "lumpsum", "lump sum", "Lump Sum"]
+    },
+    "hr": {
+      "dimension": "Time",
+      "to_si":     3600.0,
+      "display":   "hr",
+      "name":      "Hour",
+      "example":   "Labour rates, equipment hire",
+      "aliases":   ["h", "HR", "Hr", "hour", "hours"]
+    },
+    "day": {
+      "dimension": "Time",
+      "to_si":     86400.0,
+      "display":   "day",
+      "name":      "Day",
+      "example":   "Daily hire rates, short-duration work items",
+      "aliases":   ["DAY", "Day", "days", "Days"]
+    },
+    "month": {
+      "dimension": "Time",
+      "to_si":     2629800.0,
+      "display":   "month",
+      "name":      "Month",
+      "example":   "Monthly maintenance contracts",
+      "aliases":   ["Month", "MONTH", "mo", "mth", "Mth"]
+    },
+    "yr": {
+      "dimension": "Time",
+      "to_si":     31557600.0,
+      "display":   "yr",
+      "name":      "Year",
+      "example":   "Service life, LCCA analysis period, annual costs",
+      "aliases":   ["year", "Year", "YR", "Yr", "years", "Years", "annum", "p.a."]
     }
   },
 
@@ -145,6 +178,30 @@
       "name":      "Litre",
       "example":   "Paint, chemical quantities",
       "aliases":   ["L", "litre", "liter", "Litre", "Liter", "LTR", "ltr"]
+    },
+    "mm2": {
+      "dimension": "Area",
+      "to_si":     0.000001,
+      "display":   "mm\u00b2",
+      "name":      "Square Millimetre",
+      "example":   "Rebar cross-section area",
+      "aliases":   ["mm2", "sqmm", "sq.mm", "MM2"]
+    },
+    "cm2": {
+      "dimension": "Area",
+      "to_si":     0.0001,
+      "display":   "cm\u00b2",
+      "name":      "Square Centimetre",
+      "example":   "Structural member cross-sections",
+      "aliases":   ["cm2", "sqcm", "sq.cm", "CM2"]
+    },
+    "ha": {
+      "dimension": "Area",
+      "to_si":     10000.0,
+      "display":   "ha",
+      "name":      "Hectare",
+      "example":   "Land acquisition, approach road corridor",
+      "aliases":   ["HA", "Ha", "hectare", "hectares"]
     }
   },
 
@@ -244,6 +301,22 @@
       "name":      "US Gallon",
       "example":   "Paint, liquid materials",
       "aliases":   ["gallon", "gallons", "GAL", "Gal"]
+    },
+    "in2": {
+      "dimension": "Area",
+      "to_si":     0.00064516,
+      "display":   "in\u00b2",
+      "name":      "Square Inch",
+      "example":   "Structural cross-sections in US projects",
+      "aliases":   ["sqin", "sq.in", "IN2", "in2"]
+    },
+    "acre": {
+      "dimension": "Area",
+      "to_si":     4046.86,
+      "display":   "acre",
+      "name":      "Acre",
+      "example":   "Land acquisition in US/UK projects",
+      "aliases":   ["Acre", "ACRE", "acres", "Acres"]
     }
   }
 }
