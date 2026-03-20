@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize
 from ...utils.definitions import UNIT_DISPLAY
+from ...utils.display_format import fmt, fmt_comma
+from ...utils.icons import make_icon, make_icon_btn
 
 
 class StructureTableWidget(QTableWidget):
@@ -95,14 +97,14 @@ class StructureTableWidget(QTableWidget):
         self.setItem(row, 0, QTableWidgetItem(v.get("material_name", "New Item")))
 
         # 1. Rate
-        rate_item = QTableWidgetItem(str(v.get("rate", 0)))
+        rate_item = QTableWidgetItem(fmt(v.get("rate", 0)))
         rate_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.setItem(row, 1, rate_item)
 
         # 2. Qty
         unit = v.get("unit", "")
         unit = UNIT_DISPLAY.get(unit.lower(), unit) if unit else unit
-        qty_text = f"{v.get('quantity', 0)} {unit}".strip()
+        qty_text = f"{fmt(v.get('quantity', 0))} {unit}".strip()
         qty_item = QTableWidgetItem(qty_text)
         qty_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.setItem(row, 2, qty_item)
@@ -118,7 +120,7 @@ class StructureTableWidget(QTableWidget):
         except (ValueError, TypeError):
             total = 0.0
 
-        total_item = QTableWidgetItem(f"{total:.2f}")
+        total_item = QTableWidgetItem(fmt_comma(total))
         total_item.setFlags(total_item.flags() & ~Qt.ItemIsEditable)  # Read-only
         total_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.setItem(row, 4, total_item)
@@ -130,7 +132,7 @@ class StructureTableWidget(QTableWidget):
         actions_layout.setSpacing(4)
 
         if not self.is_trash_view:
-            edit_btn = QPushButton("Edit")
+            edit_btn = make_icon_btn("edit", "Edit")
             edit_btn.setFocusPolicy(Qt.NoFocus)
             edit_btn.clicked.connect(
                 lambda checked=False, r=row: self.manager.open_edit_dialog(
@@ -139,7 +141,10 @@ class StructureTableWidget(QTableWidget):
             )
             actions_layout.addWidget(edit_btn)
 
-        trash_btn = QPushButton("Restore" if self.is_trash_view else "Trash")
+        if self.is_trash_view:
+            trash_btn = make_icon_btn("restore", "Restore")
+        else:
+            trash_btn = make_icon_btn("trash", "Move to trash")
         trash_btn.setFocusPolicy(Qt.NoFocus)
         trash_btn.clicked.connect(
             lambda checked=False, idx=original_index: self.manager.toggle_trash_status(
@@ -149,9 +154,13 @@ class StructureTableWidget(QTableWidget):
         actions_layout.addWidget(trash_btn)
 
         if self.is_trash_view:
-            delete_btn = QPushButton("Delete")
+            delete_btn = make_icon_btn("trash", "Delete permanently")
             delete_btn.setFocusPolicy(Qt.NoFocus)
-            delete_btn.setStyleSheet("color: #c0392b;")
+            delete_btn.setStyleSheet(
+                "QPushButton { border-radius: 14px; padding: 0px; border: none; background: transparent; }"
+                "QPushButton:hover { border-radius: 14px; padding: 0px; background: rgba(192, 57, 43, 40); }"
+                "QPushButton:pressed { border-radius: 14px; padding: 0px; background: rgba(192, 57, 43, 80); }"
+            )
             delete_btn.clicked.connect(
                 lambda checked=False, idx=original_index: self._confirm_permanent_delete(idx)
             )

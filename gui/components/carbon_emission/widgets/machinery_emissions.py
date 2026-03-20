@@ -39,6 +39,7 @@ from ...base_widget import ScrollableForm
 from ...utils.form_builder.form_definitions import FieldDef, Section
 from ...utils.form_builder.form_builder import build_form
 from ...utils.remarks_editor import RemarksEditor
+from ...utils.display_format import fmt, fmt_comma, DECIMAL_PLACES
 
 CHUNK = "machinery_emissions_data"
 BASE_DOCS_URL = "https://yourdocs.com/carbon/machinery/"
@@ -138,7 +139,7 @@ LUMPSUM_ELEC_FIELDS = [
         "Electricity Consumption per Day",
         "Total electricity consumed per working day across all equipment.",
         "float",
-        options=(0.0, 1e12, 2),
+        options=(0.0, 1e12, DECIMAL_PLACES),
         unit="kWh/day",
     ),
     FieldDef(
@@ -154,7 +155,7 @@ LUMPSUM_ELEC_FIELDS = [
         "Emission Factor",
         "Grid electricity emission factor (kg CO₂e per kWh).",
         "float",
-        options=(0.0, 999.0, 4),
+        options=(0.0, 999.0, DECIMAL_PLACES),
         unit="kg CO₂e/kWh",
     ),
 ]
@@ -166,7 +167,7 @@ LUMPSUM_FUEL_FIELDS = [
         "Fuel Consumption per Day",
         "Total diesel/fuel consumed per working day across all equipment.",
         "float",
-        options=(0.0, 1e12, 2),
+        options=(0.0, 1e12, DECIMAL_PLACES),
         unit="litres/day",
     ),
     FieldDef(
@@ -182,7 +183,7 @@ LUMPSUM_FUEL_FIELDS = [
         "Emission Factor",
         "Diesel emission factor (kg CO₂e per litre).",
         "float",
-        options=(0.0, 999.0, 4),
+        options=(0.0, 999.0, DECIMAL_PLACES),
         unit="kg CO₂e/litre",
     ),
 ]
@@ -226,14 +227,14 @@ class _EquipmentRow:
 
         self.rate = QDoubleSpinBox()
         self.rate.setRange(0.0, 99999.0)
-        self.rate.setDecimals(2)
+        self.rate.setDecimals(DECIMAL_PLACES)
         self.rate.setButtonSymbols(QDoubleSpinBox.NoButtons)
         self.rate.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.rate.valueChanged.connect(on_change)
 
         self.hrs = QDoubleSpinBox()
         self.hrs.setRange(0.0, 24.0)
-        self.hrs.setDecimals(3)
+        self.hrs.setDecimals(DECIMAL_PLACES)
         self.hrs.setButtonSymbols(QDoubleSpinBox.NoButtons)
         self.hrs.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.hrs.valueChanged.connect(on_change)
@@ -246,16 +247,16 @@ class _EquipmentRow:
 
         self.ef = QDoubleSpinBox()
         self.ef.setRange(0.0, 999.0)
-        self.ef.setDecimals(4)
+        self.ef.setDecimals(DECIMAL_PLACES)
         self.ef.setButtonSymbols(QDoubleSpinBox.NoButtons)
         self.ef.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.ef.valueChanged.connect(on_change)
 
-        self.consumption_item = QTableWidgetItem("0.00")
+        self.consumption_item = QTableWidgetItem(fmt(0.0))
         self.consumption_item.setFlags(Qt.ItemIsEnabled)
         self.consumption_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        self.emissions_item = QTableWidgetItem("0.00")
+        self.emissions_item = QTableWidgetItem(fmt(0.0))
         self.emissions_item.setFlags(Qt.ItemIsEnabled)
         self.emissions_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
@@ -284,8 +285,8 @@ class _EquipmentRow:
         emissions = consumption * self.ef.value()
         src = self.source.currentText()
         unit = CONSUMPTION_UNIT.get(src, "units")
-        self.consumption_item.setText(f"{consumption:,.2f} {unit}")
-        self.emissions_item.setText(f"{emissions:,.2f}")
+        self.consumption_item.setText(f"{fmt_comma(consumption)} {unit}")
+        self.emissions_item.setText(fmt_comma(emissions))
         return emissions
 
     def freeze(self, frozen: bool = True):
@@ -391,9 +392,9 @@ class _DetailedTable(QWidget):
 
         # Subtotals
         sub_layout = QHBoxLayout()
-        self._lbl_diesel_sub = QLabel("Diesel: 0.00 kg CO₂e")
-        self._lbl_elec_sub = QLabel("Electricity: 0.00 kg CO₂e")
-        self._lbl_detail_total = QLabel("Subtotal: 0.00 kg CO₂e")
+        self._lbl_diesel_sub = QLabel(f"Diesel: {fmt(0.0)} kg CO₂e")
+        self._lbl_elec_sub = QLabel(f"Electricity: {fmt(0.0)} kg CO₂e")
+        self._lbl_detail_total = QLabel(f"Subtotal: {fmt(0.0)} kg CO₂e")
         bold = QFont()
         bold.setBold(True)
         self._lbl_detail_total.setFont(bold)
@@ -536,9 +537,9 @@ class _DetailedTable(QWidget):
             else:
                 elec_total += em
         self._cached_total = diesel_total + elec_total
-        self._lbl_diesel_sub.setText(f"Diesel: {diesel_total:,.2f} kg CO₂e")
-        self._lbl_elec_sub.setText(f"Electricity: {elec_total:,.2f} kg CO₂e")
-        self._lbl_detail_total.setText(f"Subtotal: {self._cached_total:,.2f} kg CO₂e")
+        self._lbl_diesel_sub.setText(f"Diesel: {fmt_comma(diesel_total)} kg CO₂e")
+        self._lbl_elec_sub.setText(f"Electricity: {fmt_comma(elec_total)} kg CO₂e")
+        self._lbl_detail_total.setText(f"Subtotal: {fmt_comma(self._cached_total)} kg CO₂e")
         self._on_change()
 
     def freeze(self, frozen: bool = True):
@@ -698,7 +699,7 @@ class MachineryEmissions(ScrollableForm):
         ls_total_row = QWidget()
         ls_total_layout = QHBoxLayout(ls_total_row)
         ls_total_layout.setContentsMargins(0, 8, 0, 4)
-        self._lbl_lumpsum_total = QLabel("Lump Sum Subtotal: 0.00 kg CO₂e")
+        self._lbl_lumpsum_total = QLabel(f"Lump Sum Subtotal: {fmt(0.0)} kg CO₂e")
         bold2 = QFont()
         bold2.setBold(True)
         self._lbl_lumpsum_total.setFont(bold2)
@@ -784,9 +785,9 @@ class MachineryEmissions(ScrollableForm):
             self._shrink_stack_to_current()
         else:
             total = self._lumpsum_elec_total() + self._lumpsum_fuel_total()
-            self._lbl_lumpsum_total.setText(f"Lump Sum Subtotal: {total:,.2f} kg CO₂e")
+            self._lbl_lumpsum_total.setText(f"Lump Sum Subtotal: {fmt_comma(total)} kg CO₂e")
 
-        text = f"Total Machinery Emissions: {total:,.2f} kg CO₂e"
+        text = f"Total Machinery Emissions: {fmt_comma(total)} kg CO₂e"
         self._lbl_grand_total.setText(text)
         self._lbl_grand_total_bottom.setText(text)
         self._on_field_changed()
@@ -832,7 +833,7 @@ class MachineryEmissions(ScrollableForm):
                     if self._current_mode() == "detailed"
                     else self._lumpsum_elec_total() + self._lumpsum_fuel_total()
                 ),
-                4,
+                DECIMAL_PLACES,
             ),
         }
 

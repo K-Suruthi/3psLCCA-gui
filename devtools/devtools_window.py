@@ -185,7 +185,8 @@ class DevToolsWindow(QMainWindow):
         self.viewer_title.setStyleSheet("color:#888; font-size:12px;")
         hdr_layout.addWidget(self.viewer_title, stretch=1)
 
-        self.btn_edit   = self._small_btn("Edit",   self._start_edit)
+        # self.btn_edit   = self._small_btn("Edit",   self._start_edit)
+        self.btn_edit   = self._small_btn("✏️",   self._start_edit)
         self.btn_revert = self._small_btn("Revert", self._revert_chunk)
         self.btn_save   = self._small_btn("Save",   self._save_chunk)
         for b in (self.btn_edit, self.btn_revert, self.btn_save):

@@ -36,6 +36,7 @@ from ...utils.definitions import (
     SI_BASE_UNITS,
     UNIT_DISPLAY,
 )
+from ...utils.display_format import fmt, fmt_comma, DECIMAL_PLACES
 from ...utils.unit_resolver import get_custom_units, load_custom_units, _UNIT_ALIASES as _SOR_UNIT_ALIASES
 from ...utils.input_fields.add_material import FIELD_DEFINITIONS, BASE_DOCS_URL
 
@@ -731,6 +732,7 @@ class MaterialDialog(QDialog):
 
         dbl = QDoubleValidator()
         dbl.setNotation(QDoubleValidator.StandardNotation)
+        dbl.setDecimals(DECIMAL_PLACES)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -821,7 +823,7 @@ class MaterialDialog(QDialog):
         qty_col.setSpacing(3)
         qty_col.addWidget(_lbl("Quantity *"))
         qty_val = v.get("quantity", "")
-        self.qty_in = QLineEdit("" if not qty_val else str(qty_val))
+        self.qty_in = QLineEdit("" if not qty_val else fmt(qty_val))
         self.qty_in.setPlaceholderText("e.g. 100")
         self.qty_in.setMinimumHeight(32)
         self.qty_in.setValidator(dbl)
@@ -1005,7 +1007,7 @@ class MaterialDialog(QDialog):
         scrap_col.setSpacing(3)
         scrap_col.addWidget(_lbl("Scrap Rate (per unit)"))
         scrap_val = v.get("scrap_rate", "")
-        self.scrap_in = QLineEdit("" if not scrap_val else str(scrap_val))
+        self.scrap_in = QLineEdit("" if not scrap_val else fmt(scrap_val))
         self.scrap_in.setPlaceholderText("e.g. 50")
         self.scrap_in.setMinimumHeight(32)
         self.scrap_in.setValidator(dbl)
@@ -1016,7 +1018,7 @@ class MaterialDialog(QDialog):
         recov_col.setSpacing(3)
         recov_col.addWidget(_lbl("Recovery after Demolition (%)"))
         recov_val = v.get("post_demolition_recovery_percentage", "")
-        self.recycling_perc_in = QLineEdit("" if not recov_val else str(recov_val))
+        self.recycling_perc_in = QLineEdit("" if not recov_val else fmt(recov_val))
         self.recycling_perc_in.setPlaceholderText("e.g. 90")
         self.recycling_perc_in.setMinimumHeight(32)
         self.recycling_perc_in.setValidator(dbl)
@@ -1416,7 +1418,7 @@ class MaterialDialog(QDialog):
                             self.unit_in.setCurrentIndex(idx)
 
                     rate = item.get('rate', '')
-                    self.rate_in.setText(str(rate) if rate not in ('', 'not_available', None) else '')
+                    self.rate_in.setText(fmt(rate) if rate not in ('', 'not_available', None) else '')
 
                     src = item.get('rate_src', '')
                     self.src_in.setText(str(src) if src not in ('', 'not_available', None) else '')
@@ -1432,7 +1434,7 @@ class MaterialDialog(QDialog):
                     )
                     self._sor_carbon_available = carbon_available
                     if carbon_available:
-                        self.carbon_em_in.setText(str(carbon))
+                        self.carbon_em_in.setText(fmt(carbon))
                         didx = _resolve_unit_code(denom, self.carbon_denom_cb)
                         if didx >= 0:
                             self.carbon_denom_cb.setCurrentIndex(didx)
@@ -1442,7 +1444,7 @@ class MaterialDialog(QDialog):
                     self.carbon_chk.setEnabled(carbon_available)
 
                     cf = item.get('conversion_factor', 'not_available')
-                    self.conv_factor_in.setText(str(cf) if cf not in ('not_available', '', None, 0, 0.0) else '')
+                    self.conv_factor_in.setText(fmt(cf) if cf not in ('not_available', '', None, 0, 0.0) else '')
 
                     self.recycle_chk.setChecked(False)
                     self.recycle_chk.setEnabled(True)
@@ -1524,7 +1526,7 @@ class MaterialDialog(QDialog):
             rate = item.get('rate', '')
             rate_filled = rate not in ('', 'not_available', None)
             if rate_filled:
-                self.rate_in.setText(str(rate))
+                self.rate_in.setText(fmt(rate))
 
             src = item.get('rate_src', '')
             src_filled = src not in ('', 'not_available', None)
@@ -1540,7 +1542,7 @@ class MaterialDialog(QDialog):
             self._sor_carbon_available = carbon_available
 
             if carbon_available:
-                self.carbon_em_in.setText(str(carbon))
+                self.carbon_em_in.setText(fmt(carbon))
                 didx = _resolve_unit_code(denom, self.carbon_denom_cb)
                 if didx >= 0:
                     self.carbon_denom_cb.setCurrentIndex(didx)
@@ -1554,7 +1556,7 @@ class MaterialDialog(QDialog):
 
             cf = item.get('conversion_factor', 'not_available')
             if cf not in ('not_available', '', None, 0, 0.0):
-                self.conv_factor_in.setText(str(cf))
+                self.conv_factor_in.setText(fmt(cf))
             else:
                 self.conv_factor_in.setText('')
 
@@ -1799,16 +1801,22 @@ class MaterialDialog(QDialog):
         denom_si, denom_dim = self._get_unit_info(denom_code)
 
         if mat_code == denom_code:
+            self._auto_cf = "1"
             self.conv_factor_in.setText("1")
             self.cf_row_widget.setVisible(False)
         elif mat_si is not None and denom_si is not None and mat_dim == denom_dim:
-            suggested = mat_si / denom_si
-            self.conv_factor_in.setText(f"{suggested:g}")
+            suggested = f"{mat_si / denom_si:g}"
+            self._auto_cf = suggested
+            self.conv_factor_in.setText(suggested)
             self.cf_row_widget.setVisible(True)
             self.cf_prefix_lbl.setText(f"1 {mat_sym} =")
             self.cf_suffix_lbl.setText(denom_sym)
             self.cf_status_lbl.setText("(suggested — you can change this)")
         else:
+            # Clear the field only if it still holds a previously auto-written value
+            if self.conv_factor_in.text() == getattr(self, "_auto_cf", None):
+                self.conv_factor_in.clear()
+            self._auto_cf = None
             self.cf_row_widget.setVisible(True)
             self.cf_prefix_lbl.setText(f"1 {mat_sym} =")
             self.cf_suffix_lbl.setText(denom_sym)
@@ -1837,12 +1845,12 @@ class MaterialDialog(QDialog):
                 if cf == 1.0:
                     self.formula_lbl.setText(
                         f"{qty:g} {mat_sym}  ×  {ef:g} kgCO₂e/{denom_sym}"
-                        f"  =  {total:,.3f} kgCO₂e"
+                        f"  =  {fmt_comma(total)} kgCO₂e"
                     )
                 else:
                     self.formula_lbl.setText(
                         f"{qty:g} {mat_sym}  ×  {cf:g}  ×  {ef:g} kgCO₂e/{denom_sym}"
-                        f"  =  {total:,.3f} kgCO₂e"
+                        f"  =  {fmt_comma(total)} kgCO₂e"
                     )
                 self.formula_lbl.setVisible(True)
             else:

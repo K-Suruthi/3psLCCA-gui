@@ -449,7 +449,8 @@ class WpiDatabaseDialog(QDialog):
         self._hash_label.setStyleSheet("font-size:11px;")
         hdr_layout.addWidget(self._hash_label)
 
-        self._btn_edit   = self._small_btn("Edit",   self._start_edit)
+        # self._btn_edit   = self._small_btn("Edit",   self._start_edit)
+        self._btn_edit   = self._small_btn("✏️",   self._start_edit)
         self._btn_revert = self._small_btn("Revert", self._revert_edit)
         self._btn_apply  = self._small_btn("Apply",  self._apply_edit)
         for b in (self._btn_edit, self._btn_revert, self._btn_apply):

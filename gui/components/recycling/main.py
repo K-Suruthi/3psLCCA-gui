@@ -16,6 +16,8 @@ import time
 import datetime
 
 from ..utils.definitions import UNIT_DISPLAY
+from ..utils.display_format import fmt, fmt_comma
+from ..utils.icons import make_icon, make_icon_btn
 
 
 # ---------------------------------------------------------------------------
@@ -309,18 +311,23 @@ class Recycling(QWidget):
             row = t.rowCount()
             t.insertRow(row)
 
-            qty_unit = f"{v.get('quantity', 0)} {_fmt_unit(v.get('unit', ''))}".strip()
+            qty_unit = f"{fmt(v.get('quantity', 0))} {_fmt_unit(v.get('unit', ''))}".strip()
             recyclable_qty = (
-                f"{calc_recyclable_qty(item):.2f} {_fmt_unit(v.get('unit', ''))}".strip()
+                f"{fmt(calc_recyclable_qty(item))} {_fmt_unit(v.get('unit', ''))}".strip()
             )
-            value_str = f"{currency} {value:,.2f}".strip()
+            value_str = f"{currency} {fmt_comma(value)}".strip()
+
+            def _ri(text):
+                it = QTableWidgetItem(text)
+                it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                return it
 
             t.setItem(row, 0, QTableWidgetItem(category))
             t.setItem(row, 1, QTableWidgetItem(v.get("material_name", "")))
-            t.setItem(row, 2, QTableWidgetItem(qty_unit))
-            t.setItem(row, 3, QTableWidgetItem(f"{_recycle_pct(v):.1f}%"))
-            t.setItem(row, 4, QTableWidgetItem(recyclable_qty))
-            t.setItem(row, 5, QTableWidgetItem(str(v.get("scrap_rate", 0))))
+            t.setItem(row, 2, _ri(qty_unit))
+            t.setItem(row, 3, _ri(f"{_recycle_pct(v):.1f}%"))
+            t.setItem(row, 4, _ri(recyclable_qty))
+            t.setItem(row, 5, _ri(fmt(v.get("scrap_rate", 0))))
 
             val_item = QTableWidgetItem(value_str)
             val_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -330,12 +337,12 @@ class Recycling(QWidget):
             warn_item.setTextAlignment(Qt.AlignCenter)
             t.setItem(row, 7, warn_item)
 
-            edit_btn = QPushButton("Edit")
+            edit_btn = make_icon_btn("edit", "Edit")
             edit_btn.setFocusPolicy(Qt.NoFocus)
             edit_btn.clicked.connect(
                 lambda _, ci=chunk_id, cn=comp_name, i=idx, it=item: self._open_recyclability_edit(ci, cn, i, it)
             )
-            excl_btn = QPushButton("Exclude")
+            excl_btn = make_icon_btn("exclude", "Exclude", icon_color="#e74c3c", hover_color="231, 76, 60")
             excl_btn.setFocusPolicy(Qt.NoFocus)
             excl_btn.clicked.connect(
                 lambda _, ci=chunk_id, cn=comp_name, i=idx: self._toggle_inclusion(ci, cn, i, False)
@@ -353,20 +360,25 @@ class Recycling(QWidget):
             row = t.rowCount()
             t.insertRow(row)
 
-            qty_unit = f"{v.get('quantity', 0)} {_fmt_unit(v.get('unit', ''))}".strip()
+            qty_unit = f"{fmt(v.get('quantity', 0))} {_fmt_unit(v.get('unit', ''))}".strip()
+
+            def _ri(text):
+                it = QTableWidgetItem(text)
+                it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                return it
 
             t.setItem(row, 0, QTableWidgetItem(category))
             t.setItem(row, 1, QTableWidgetItem(v.get("material_name", "")))
-            t.setItem(row, 2, QTableWidgetItem(qty_unit))
-            t.setItem(row, 3, QTableWidgetItem(f"{_recycle_pct(v):.1f}%"))
-            t.setItem(row, 4, QTableWidgetItem(str(v.get("scrap_rate", 0))))
+            t.setItem(row, 2, _ri(qty_unit))
+            t.setItem(row, 3, _ri(f"{_recycle_pct(v):.1f}%"))
+            t.setItem(row, 4, _ri(fmt(v.get("scrap_rate", 0))))
             t.setItem(row, 5, QTableWidgetItem(reason))
 
             warn_item = QTableWidgetItem("")
             warn_item.setTextAlignment(Qt.AlignCenter)
             t.setItem(row, 6, warn_item)
 
-            edit_btn = QPushButton("Edit")
+            edit_btn = make_icon_btn("edit", "Edit")
             edit_btn.setFocusPolicy(Qt.NoFocus)
             edit_btn.clicked.connect(
                 lambda _, ci=chunk_id, cn=comp_name, i=idx, it=item: self._open_recyclability_edit(ci, cn, i, it)
@@ -375,7 +387,7 @@ class Recycling(QWidget):
             if reason == "Missing Data":
                 t.setCellWidget(row, 7, self._btn_container(edit_btn))
             else:
-                incl_btn = QPushButton("Include")
+                incl_btn = make_icon_btn("include", "Include", icon_color="#2ecc71", hover_color="46, 204, 113")
                 incl_btn.setFocusPolicy(Qt.NoFocus)
                 incl_btn.clicked.connect(
                     lambda _, ci=chunk_id, cn=comp_name, i=idx: self._toggle_inclusion(ci, cn, i, True)
@@ -393,21 +405,21 @@ class Recycling(QWidget):
         currency: str,
     ):
         self.total_lbl.setText(
-            f"Total Recovered Value: {currency} {total:,.2f}".strip()
+            f"Total Recovered Value: {currency} {fmt_comma(total)}".strip()
         )
         self.count_lbl.setText(f"Included: {included} of {total_count} items")
 
         self.foundation_lbl.setText(
-            f"Foundation: {currency} {cat_totals.get('Foundation', 0):,.2f}".strip()
+            f"Foundation: {currency} {fmt_comma(cat_totals.get('Foundation', 0))}".strip()
         )
         self.sub_lbl.setText(
-            f"Sub Structure: {currency} {cat_totals.get('Sub Structure', 0):,.2f}".strip()
+            f"Sub Structure: {currency} {fmt_comma(cat_totals.get('Sub Structure', 0))}".strip()
         )
         self.super_lbl.setText(
-            f"Super Structure: {currency} {cat_totals.get('Super Structure', 0):,.2f}".strip()
+            f"Super Structure: {currency} {fmt_comma(cat_totals.get('Super Structure', 0))}".strip()
         )
         self.misc_lbl.setText(
-            f"Misc: {currency} {cat_totals.get('Misc', 0):,.2f}".strip()
+            f"Misc: {currency} {fmt_comma(cat_totals.get('Misc', 0))}".strip()
         )
 
     # ── Actions ──────────────────────────────────────────────────────────

@@ -17,11 +17,13 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QMessageBox,
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QSize, QTimer
 
 from .transport_dialog import TransportDialog
 from PySide6.QtGui import QColor
 from ...utils.definitions import STRUCTURE_CHUNKS, UNIT_DIMENSION
+from ...utils.display_format import fmt, fmt_comma
+from ...utils.icons import make_icon
 
 
 # ---------------------------------------------------------------------------
@@ -222,8 +224,8 @@ class VehicleCard(QGroupBox):
         title = (
             f"{v.get('name', 'Vehicle')}  —  "
             f"{origin_part}"
-            f"{r.get('distance_km', 0)} km  |  "
-            f"{total_emission:,.2f} kgCO₂e"
+            f"{fmt(r.get('distance_km', 0))} km  |  "
+            f"{fmt_comma(total_emission)} kgCO₂e"
         )
         super().__init__(title, parent)
 
@@ -236,10 +238,10 @@ class VehicleCard(QGroupBox):
         cap = v.get('capacity', 0)
         empty = v.get('empty_weight', max(0.0, gross - cap))
         specs = [
-            f"Capacity: {cap}t",
-            f"Gross Wt (loaded): {gross}t",
-            f"Empty Wt: {empty:.2f}t",
-            f"EF: {v.get('emission_factor', 0)} kgCO₂e/t-km",
+            f"Capacity: {fmt(cap)}t",
+            f"Gross Wt (loaded): {fmt(gross)}t",
+            f"Empty Wt: {fmt(empty)}t",
+            f"EF: {fmt(v.get('emission_factor', 0))} kgCO₂e/t-km",
         ]
         for spec in specs:
             lbl = QLabel(spec)
@@ -264,7 +266,11 @@ class VehicleCard(QGroupBox):
         # Buttons
         btn_row = QHBoxLayout()
         edit_btn = QPushButton("Edit Delivery")
+        edit_btn.setIcon(make_icon("edit"))
+        edit_btn.setIconSize(QSize(16, 16))
         trash_btn = QPushButton("Remove")
+        trash_btn.setIcon(make_icon("trash"))
+        trash_btn.setIconSize(QSize(16, 16))
         edit_btn.clicked.connect(on_edit)
         trash_btn.clicked.connect(on_trash)
         edit_btn.setEnabled(not frozen)
@@ -313,7 +319,7 @@ class VehicleCard(QGroupBox):
             if status == "ok":
                 table.setItem(row, 0, self._item(mat.get("name", "")))
                 table.setItem(row, 1, self._item(mat.get("category", "")))
-                table.setItem(row, 2, self._item(str(mat.get("kg_factor", 1))))
+                table.setItem(row, 2, self._item(fmt(mat.get("kg_factor", 1)), Qt.AlignRight | Qt.AlignVCenter))
                 table.setItem(
                     row,
                     3,
@@ -332,7 +338,7 @@ class VehicleCard(QGroupBox):
                     row,
                     5,
                     self._item(
-                        f"{mat.get('emission', 0):,.2f}",
+                        fmt_comma(mat.get('emission', 0)),
                         Qt.AlignRight | Qt.AlignVCenter,
                     ),
                 )
@@ -512,19 +518,19 @@ class TransportEmissions(QWidget):
 
         # Update summary
         self.total_lbl.setText(
-            f"Total Transport Emissions: {total_emission:,.2f} kgCO₂e"
+            f"Total Transport Emissions: {fmt_comma(total_emission)} kgCO₂e"
         )
         self.vehicle_lbl.setText(f"Vehicles: {active_count}")
         self.foundation_lbl.setText(
-            f"Foundation: {cat_totals.get('Foundation', 0):,.2f}"
+            f"Foundation: {fmt_comma(cat_totals.get('Foundation', 0))}"
         )
         self.sub_lbl.setText(
-            f"Sub Structure: {cat_totals.get('Sub Structure', 0):,.2f}"
+            f"Sub Structure: {fmt_comma(cat_totals.get('Sub Structure', 0))}"
         )
         self.super_lbl.setText(
-            f"Super Structure: {cat_totals.get('Super Structure', 0):,.2f}"
+            f"Super Structure: {fmt_comma(cat_totals.get('Super Structure', 0))}"
         )
-        self.misc_lbl.setText(f"Misc: {cat_totals.get('Misc', 0):,.2f}")
+        self.misc_lbl.setText(f"Misc: {fmt_comma(cat_totals.get('Misc', 0))}")
 
     # ── Actions ──────────────────────────────────────────────────────────
 

@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QDoubleValidator, QFont
 
 from ...utils.definitions import STRUCTURE_CHUNKS, UNIT_DIMENSION, UNIT_DISPLAY
+from ...utils.display_format import fmt, fmt_comma, DECIMAL_PLACES
 
 # ---------------------------------------------------------------------------
 # Vehicle class data
@@ -118,7 +119,7 @@ class TransportDialog(QDialog):
         dl.addWidget(QLabel("One-Way Distance (km) *"))
         self.dist_in = QDoubleSpinBox()
         self.dist_in.setRange(0, 100_000)
-        self.dist_in.setDecimals(1)
+        self.dist_in.setDecimals(DECIMAL_PLACES)
         self.dist_in.setMinimumHeight(34)
         self.dist_in.valueChanged.connect(self._update_summary)
         dl.addWidget(self.dist_in)
@@ -176,15 +177,15 @@ class TransportDialog(QDialog):
             l.addWidget(sb)
             return w, sb
 
-        w, self.capacity_in = _spin_field("Payload Capacity (t)", 0.01, 1000, 2)
+        w, self.capacity_in = _spin_field("Payload Capacity (t)", 0.01, 1000, DECIMAL_PLACES)
         ag.addWidget(w, 0, 0)
         self.capacity_in.valueChanged.connect(self._on_capacity_changed)
 
-        w, self.gross_in = _spin_field("Gross Weight — Loaded (t)", 0.01, 2000, 2)
+        w, self.gross_in = _spin_field("Gross Weight — Loaded (t)", 0.01, 2000, DECIMAL_PLACES)
         ag.addWidget(w, 0, 1)
         self.gross_in.valueChanged.connect(self._update_summary)
 
-        w, self.ef_in = _spin_field("Emission Factor (kgCO₂e/t-km)", 0, 10, 4)
+        w, self.ef_in = _spin_field("Emission Factor (kgCO₂e/t-km)", 0, 10, DECIMAL_PLACES)
         ag.addWidget(w, 0, 2)
         self.ef_in.valueChanged.connect(self._on_ef_user_changed)
 
@@ -380,8 +381,8 @@ class TransportDialog(QDialog):
         cap   = self.capacity_in.value()
         empty = max(0.0, gross - cap)
         self.empty_derived_lbl.setText(
-            f"Empty vehicle weight (derived): {empty:.2f} t   "
-            f"(Gross {gross:.2f} t − Capacity {cap:.2f} t)"
+            f"Empty vehicle weight (derived): {fmt(empty)} t   "
+            f"(Gross {fmt(gross)} t − Capacity {fmt(cap)} t)"
         )
 
     # ── Material table ────────────────────────────────────────────────
@@ -486,7 +487,7 @@ class TransportDialog(QDialog):
                         ai.setFlags(_no_interact)
                         self.mat_table.setItem(row, 4, ai)
                     elif is_mass:
-                        fi = QTableWidgetItem(f"{kg_factor:g}" if kg_factor > 0 else "")
+                        fi = QTableWidgetItem(fmt(kg_factor) if kg_factor > 0 else "")
                         fi.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                         fi.setData(Qt.UserRole, kg_factor)
                         fi.setFlags(_no_interact)
@@ -494,7 +495,7 @@ class TransportDialog(QDialog):
                         self.mat_table.setItem(row, 4, fi)
                     else:
                         prefill = saved_kg.get(mat_uuid, kg_factor)
-                        edit = QLineEdit("" if prefill <= 0 else f"{prefill:g}")
+                        edit = QLineEdit("" if prefill <= 0 else fmt(prefill))
                         edit.setPlaceholderText("kg per unit")
                         edit.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                         edit.setValidator(QDoubleValidator(0, 1e9, 4))
@@ -692,8 +693,8 @@ class TransportDialog(QDialog):
         cls_name = _CLASSES[self._selected_cls][0]
 
         self._s_class.setText(cls_name)
-        self._s_dist.setText(f"{dist:.1f} km" if dist > 0 else "—")
-        self._s_cap.setText(f"{cap:.2f} t")
+        self._s_dist.setText(f"{fmt(dist)} km" if dist > 0 else "—")
+        self._s_cap.setText(f"{fmt(cap)} t")
         self._s_mats.setText(str(selected_count) if selected_count else "—")
         self._s_load.setText(f"{total_kg:,.0f} kg" if total_kg > 0 else "—")
 
@@ -708,9 +709,9 @@ class TransportDialog(QDialog):
             self._s_trips.setStyleSheet("")
 
         if emission > 0:
-            self._s_emission.setText(f"{emission:,.1f} kgCO₂e")
+            self._s_emission.setText(f"{fmt_comma(emission)} kgCO₂e")
             self._s_breakdown.setText(
-                f"Loaded {loaded:,.1f}  +  Return {ret:,.1f}"
+                f"Loaded {fmt_comma(loaded)}  +  Return {fmt_comma(ret)}"
             )
         else:
             self._s_emission.setText("—")

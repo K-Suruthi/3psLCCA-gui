@@ -17,6 +17,8 @@ import datetime
 
 from ...utils.unit_resolver import analyze_conversion_sympy
 from ...utils.definitions import UNIT_DISPLAY
+from ...utils.display_format import fmt, fmt_comma
+from ...utils.icons import make_icon, make_icon_btn
 
 
 def _fmt_unit(code: str) -> str:
@@ -67,12 +69,37 @@ TEXT_DARK = "#212529"
 # ---------------------------------------------------------------------------
 
 
-def is_carbon_valid(item) -> bool:
-    v = item.get("values", {})
+_NA = {"not_available", None, ""}
+
+
+def _cf_value(v: dict) -> float:
+    """Return the conversion factor, defaulting to 1.0 when not explicitly set."""
+    raw = v.get("conversion_factor", "not_available")
+    if raw in _NA:
+        return 1.0
     try:
-        emission = float(v.get("carbon_emission", 0) or 0)
-        conv = float(v.get("conversion_factor", 0) or 0)
-        return emission != 0 and conv > 0
+        val = float(raw)
+        return val if val > 0 else 1.0
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def is_carbon_valid(item) -> bool:
+    """Valid when carbon_emission is non-zero and CF (if explicitly set) is positive."""
+    v = item.get("values", {})
+    # Explicitly stored CF of 0 or negative is invalid (not just suspicious)
+    cf_raw = v.get("conversion_factor", "not_available")
+    if cf_raw not in _NA:
+        try:
+            if float(cf_raw) <= 0:
+                return False
+        except (TypeError, ValueError):
+            pass  # unparseable CF treated as not_available → default 1.0
+    try:
+        emission_raw = v.get("carbon_emission", "not_available")
+        if emission_raw in _NA:
+            return False
+        return float(emission_raw) != 0
     except (TypeError, ValueError):
         return False
 
@@ -83,7 +110,7 @@ def calc_carbon(item: dict) -> float:
     try:
         return (
             float(v.get("quantity", 0) or 0)
-            * float(v.get("conversion_factor", 0) or 0)
+            * _cf_value(v)
             * float(v.get("carbon_emission", 0) or 0)
         )
     except (TypeError, ValueError):
@@ -113,7 +140,6 @@ class CarbonTable(QTableWidget):
         "Conv. Factor",
         "Emission",
         "Reason",
-        "Warning",
         "Action",
     ]
 
@@ -137,7 +163,7 @@ class CarbonTable(QTableWidget):
         widths = (
             [110, 180, 80, 90, 110, 100, 70, 160]
             if self.is_included
-            else [110, 160, 80, 90, 110, 100, 90, 160]
+            else [110, 160, 80, 90, 110, 130, 160]
         )
         for i, w in enumerate(widths):
             self.setColumnWidth(i, w)
@@ -297,7 +323,7 @@ class MaterialEmissions(QWidget):
 
                     # Unit resolver analysis (cached — same inputs always yield same result)
                     analysis = _cached_analysis(
-                        v.get("unit", ""), carbon_denom, v.get("conversion_factor", 1)
+                        v.get("unit", ""), carbon_denom, _cf_value(v)
                     )
 
                     valid = is_carbon_valid(item)
@@ -336,21 +362,19 @@ class MaterialEmissions(QWidget):
             row = t.rowCount()
             t.insertRow(row)
 
+            def _ri(text):
+                it = QTableWidgetItem(text)
+                it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                return it
+
             t.setItem(row, 0, QTableWidgetItem(category))
             t.setItem(row, 1, QTableWidgetItem(v.get("material_name", "")))
-            t.setItem(
-                row, 2, QTableWidgetItem(f"{v.get('quantity', 0)} {_fmt_unit(v.get('unit', ''))}")
-            )
-            t.setItem(row, 3, QTableWidgetItem(str(v.get("conversion_factor", 1))))
-            t.setItem(
-                row,
-                4,
-                QTableWidgetItem(
-                    f"{v.get('carbon_emission', 0)} {_fmt_carbon_unit(v.get('carbon_unit', ''))}"
-                ),
-            )
+            t.setItem(row, 2, _ri(f"{fmt(v.get('quantity', 0))} {_fmt_unit(v.get('unit', ''))}"))
+            _cf_raw = v.get("conversion_factor", "not_available")
+            t.setItem(row, 3, _ri(fmt(_cf_raw) if _cf_raw not in _NA else "—"))
+            t.setItem(row, 4, _ri(f"{fmt(v.get('carbon_emission', 0))} {_fmt_carbon_unit(v.get('carbon_unit', ''))}"))
 
-            carbon_item = QTableWidgetItem(f"{carbon:.2f}")
+            carbon_item = QTableWidgetItem(fmt(carbon))
             carbon_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             t.setItem(row, 5, carbon_item)
 
@@ -363,11 +387,11 @@ class MaterialEmissions(QWidget):
 
             t.setItem(row, 6, QTableWidgetItem(", ".join(warnings)))
 
-            edit_btn = QPushButton("Edit EF")
+            edit_btn = make_icon_btn("edit", "Edit emission factor")
             edit_btn.clicked.connect(
                 lambda _, ci=chunk_id, cn=comp_name, i=idx, it=item: self._open_emission_edit(ci, cn, i, it)
             )
-            excl_btn = QPushButton("Exclude")
+            excl_btn = make_icon_btn("exclude", "Exclude from calculation", icon_color="#e74c3c", hover_color="231, 76, 60")
             excl_btn.clicked.connect(
                 lambda _, ci=chunk_id, cn=comp_name, i=idx: self._toggle_inclusion(ci, cn, i, False)
             )
@@ -386,25 +410,20 @@ class MaterialEmissions(QWidget):
             row = t.rowCount()
             t.insertRow(row)
 
+            def _ri(text):
+                it = QTableWidgetItem(text)
+                it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                return it
+
             t.setItem(row, 0, QTableWidgetItem(category))
             t.setItem(row, 1, QTableWidgetItem(v.get("material_name", "")))
-            t.setItem(
-                row, 2, QTableWidgetItem(f"{v.get('quantity', 0)} {_fmt_unit(v.get('unit', ''))}")
-            )
-            t.setItem(row, 3, QTableWidgetItem(str(v.get("conversion_factor", 1))))
-            t.setItem(
-                row,
-                4,
-                QTableWidgetItem(
-                    f"{v.get('carbon_emission', 0)} {_fmt_carbon_unit(v.get('carbon_unit', ''))}"
-                ),
-            )
+            t.setItem(row, 2, _ri(f"{fmt(v.get('quantity', 0))} {_fmt_unit(v.get('unit', ''))}"))
+            _cf_raw = v.get("conversion_factor", "not_available")
+            t.setItem(row, 3, _ri(fmt(_cf_raw) if _cf_raw not in _NA else "—"))
+            t.setItem(row, 4, _ri(f"{fmt(v.get('carbon_emission', 0))} {_fmt_carbon_unit(v.get('carbon_unit', ''))}"))
             t.setItem(row, 5, QTableWidgetItem(reason))
 
-            warn_text = "! Factor" if reason == "Suspicious Data" else ""
-            t.setItem(row, 6, QTableWidgetItem(warn_text))
-
-            edit_btn = QPushButton("Edit EF")
+            edit_btn = make_icon_btn("edit", "Edit emission factor")
             edit_btn.clicked.connect(
                 lambda _, ci=chunk_id, cn=comp_name, i=idx, it=item: self._open_emission_edit(ci, cn, i, it)
             )
@@ -413,32 +432,32 @@ class MaterialEmissions(QWidget):
                 t.set_row_style(
                     row, BG_INVALID if reason == "Missing Data" else BG_SUSPICIOUS
                 )
-                t.setCellWidget(row, 7, self._btn_container(edit_btn))
+                t.setCellWidget(row, 6, self._btn_container(edit_btn))
             else:
-                incl_btn = QPushButton("Include")
+                incl_btn = make_icon_btn("include", "Include in calculation", icon_color="#2ecc71", hover_color="46, 204, 113")
                 incl_btn.clicked.connect(
                     lambda _, ci=chunk_id, cn=comp_name, i=idx: self._toggle_inclusion(ci, cn, i, True)
                 )
                 incl_btn.setEnabled(not self._frozen)
-                t.setCellWidget(row, 7, self._btn_container(edit_btn, incl_btn))
+                t.setCellWidget(row, 6, self._btn_container(edit_btn, incl_btn))
         t.update_height()
         t.setUpdatesEnabled(True)
 
     def _update_summary(
         self, total: float, included: int, total_count: int, cat_totals: dict
     ):
-        self.total_lbl.setText(f"Total: {total:,.2f} kgCO₂e")
+        self.total_lbl.setText(f"Total: {fmt_comma(total)} kgCO₂e")
         self.count_lbl.setText(f"Included: {included} of {total_count} items")
         self.foundation_lbl.setText(
-            f"Foundation: {cat_totals.get('Foundation', 0):,.2f}"
+            f"Foundation: {fmt_comma(cat_totals.get('Foundation', 0))}"
         )
         self.sub_lbl.setText(
-            f"Sub Structure: {cat_totals.get('Sub Structure', 0):,.2f}"
+            f"Sub Structure: {fmt_comma(cat_totals.get('Sub Structure', 0))}"
         )
         self.super_lbl.setText(
-            f"Super Structure: {cat_totals.get('Super Structure', 0):,.2f}"
+            f"Super Structure: {fmt_comma(cat_totals.get('Super Structure', 0))}"
         )
-        self.misc_lbl.setText(f"Misc: {cat_totals.get('Misc', 0):,.2f}")
+        self.misc_lbl.setText(f"Misc: {fmt_comma(cat_totals.get('Misc', 0))}")
 
     def _toggle_inclusion(
         self, chunk_id: str, comp_name: str, data_index: int, include: bool
@@ -529,7 +548,7 @@ class MaterialEmissions(QWidget):
                     carbon_unit = v.get("carbon_unit", "")
                     carbon_denom = carbon_unit.split("/")[-1] if "/" in carbon_unit else ""
                     analysis = _cached_analysis(
-                        v.get("unit", ""), carbon_denom, v.get("conversion_factor", 1)
+                        v.get("unit", ""), carbon_denom, _cf_value(v)
                     )
                     valid = is_carbon_valid(item)
                     is_included_flag = state.get("included_in_carbon_emission", True)

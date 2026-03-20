@@ -24,6 +24,7 @@ from ..utils.validation_helpers import (
     validate_form,
 )
 from ..utils.countries_data import CURRENCIES, COUNTRIES
+from ..utils.display_format import DECIMAL_PLACES
 
 
 BASE_DOCS_URL = "https://yourdocs.com/bridge/"
@@ -109,7 +110,7 @@ BRIDGE_FIELDS = [
         "Span",
         "Total span length of the bridge between supports.",
         "float",
-        options=(0.0, 99999.0, 2),
+        options=(0.0, 99999.0, DECIMAL_PLACES),
         unit="(m)",
         doc_slug="span",
         default=0.0,
@@ -119,7 +120,7 @@ BRIDGE_FIELDS = [
         "Carriageway Width",
         "Clear width of the roadway portion of the bridge deck.",
         "float",
-        options=(0.0, 9999.0, 2),
+        options=(0.0, 9999.0, DECIMAL_PLACES),
         unit="(m)",
         doc_slug="carriageway-width",
         default=0.0,
@@ -154,7 +155,7 @@ BRIDGE_FIELDS = [
         "Wind Speed",
         "Design wind speed used for structural analysis at the bridge site.",
         "float",
-        options=(0.0, 999.0, 2),
+        options=(0.0, 999.0, DECIMAL_PLACES),
         unit="(m/s)",
         doc_slug="wind-speed",
         default=0.0,
@@ -190,7 +191,7 @@ BRIDGE_FIELDS = [
         "Duration of Construction",
         "Construction duration expressed in months.",
         "float",
-        options=(0.0, 1200.0, 1),
+        options=(0.0, 1200.0, DECIMAL_PLACES),
         required=True,
         unit="(months)",
         doc_slug="duration-construction-months",

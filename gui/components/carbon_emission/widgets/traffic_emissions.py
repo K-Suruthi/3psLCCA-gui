@@ -18,6 +18,7 @@ from ...base_widget import ScrollableForm
 from ...utils.form_builder.form_definitions import FieldDef
 from ...utils.form_builder.form_builder import build_form
 from ...utils.remarks_editor import RemarksEditor
+from ...utils.display_format import fmt, DECIMAL_PLACES
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -56,7 +57,7 @@ DIRECT_FIELDS = [
         "Total Diversion Emissions",
         "Enter the total carbon emissions from traffic diversion per day of construction.",
         "float",
-        (0.0, 1e12, 4),
+        (0.0, 1e12, DECIMAL_PLACES),
         unit="kgCO₂e/day",
     ),
 ]
@@ -112,14 +113,14 @@ class _EmissionsTable(QTableWidget):
 
             sb = QDoubleSpinBox()
             sb.setRange(0.0, 9_999.0)
-            sb.setDecimals(4)
+            sb.setDecimals(DECIMAL_PLACES)
             sb.setButtonSymbols(QDoubleSpinBox.NoButtons)
             sb.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             sb.valueChanged.connect(self._on_factor_changed)
             self.setCellWidget(row, _COL_FACTOR, sb)
             self._factors[key] = sb
 
-            em_item = QTableWidgetItem("0.0000")
+            em_item = QTableWidgetItem(fmt(0.0))
             em_item.setFlags(Qt.ItemIsEnabled)
             em_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.setItem(row, _COL_EMISSIONS, em_item)
@@ -193,7 +194,7 @@ class _EmissionsTable(QTableWidget):
             vpd = int(self._vpd_items[key].text() or "0")
             factor = self._factors[key].value()
             em = vpd * factor * self._reroute_km
-            self._emission_items[key].setText(f"{em:.4f}")
+            self._emission_items[key].setText(fmt(em))
 
     def freeze(self, frozen: bool = True):
         for sb in self._factors.values():
@@ -378,7 +379,7 @@ class TrafficEmissions(ScrollableForm):
         self._refresh_total()
 
     def _refresh_total(self):
-        self._total_label.setText(f"{self._emissions_table.total_emissions():.4f}")
+        self._total_label.setText(fmt(self._emissions_table.total_emissions()))
 
 
 
@@ -416,7 +417,7 @@ class TrafficEmissions(ScrollableForm):
 
         # ── Load reroute + vehicle data ────────────────────────────────────
         self._emissions_table.set_reroute_distance(reroute)
-        self._reroute_label.setText(f"{reroute:.3f} km")
+        self._reroute_label.setText(f"{fmt(reroute)} km")
         self._emissions_table.load_vehicles_from_traffic(
             traffic.get("vehicle_data", {})
         )

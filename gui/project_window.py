@@ -23,7 +23,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtGui import QAction, QColor, QPainter, QPalette
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPalette
+
+from gui.components.utils.icons import make_icon, make_icon_btn
 from PySide6.QtWidgets import QToolTip
 
 from gui.components.save_status_bar import SaveStatusBar
@@ -81,6 +83,23 @@ _V_PAD = 3  # vertical padding per side (increases row height)
 _H_PAD = 6  # left text indent (pushes text away from accent bar)
 _ACCENT_W = 3  # width of the green left bar in px
 _SEL_ALPHA = 55  # not padding but affects how "heavy" selection feels
+_ICON_SIZE = 16  # sidebar icon size in pixels
+_ICON_GAP = 5   # gap between icon and label text
+
+# Material icon name for each sidebar item (top-level and section-level only)
+_SIDEBAR_ICONS: dict[str, str] = {
+    "General Information":    "info",
+    "Bridge Data":            "layers",
+    "Input Parameters":       "folder",
+    "Construction Work Data": "build",
+    "Traffic Data":           "truck",
+    "Financial Data":         "cash",
+    "Carbon Emission Data":   "cloud",
+    "Maintenance and Repair": "settings",
+    "Recycling":              "autorenew",
+    "Demolition":             "delete",
+    "Outputs":                "bar-chart",
+}
 
 
 class _SidebarDelegate(QStyledItemDelegate):
@@ -96,18 +115,27 @@ class _SidebarDelegate(QStyledItemDelegate):
         option.state &= ~(
             QStyle.State_Selected | QStyle.State_MouseOver | QStyle.State_HasFocus
         )
-        # Text only
-        text = index.data(Qt.DisplayRole)
-        if not text:
-            return
         painter.save()
         is_sel = bool(option.state & QStyle.State_Selected)
-        text_rect = option.rect.adjusted(
-            _H_PAD + (_ACCENT_W if is_sel else 0), _V_PAD, -4, -_V_PAD
-        )
-        painter.setPen(option.palette.windowText().color())
-        painter.setFont(option.font)
-        painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, text)
+        x = option.rect.left() + _H_PAD + (_ACCENT_W if is_sel else 0)
+
+        # Draw icon (DecorationRole) if present
+        icon: QIcon = index.data(Qt.DecorationRole)
+        if icon and not icon.isNull():
+            iy = option.rect.top() + (option.rect.height() - _ICON_SIZE) // 2
+            icon_rect = QRect(x, iy, _ICON_SIZE, _ICON_SIZE)
+            icon.paint(painter, icon_rect, Qt.AlignCenter)
+            x += _ICON_SIZE + _ICON_GAP
+
+        # Draw text
+        text = index.data(Qt.DisplayRole)
+        if text:
+            text_rect = QRect(x, option.rect.top() + _V_PAD,
+                              option.rect.right() - x - 4,
+                              option.rect.height() - _V_PAD * 2)
+            painter.setPen(option.palette.windowText().color())
+            painter.setFont(option.font)
+            painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, text)
         painter.restore()
 
 
@@ -275,6 +303,7 @@ class ProjectWindow(QMainWindow):
         self.project_id = None
 
         self.setWindowTitle("LCCA - Home")
+        self.setWindowIcon(make_icon("bridge", color="#2ecc71", size=64))
         self.resize(1100, 750)
 
         self.main_stack = QStackedWidget()
@@ -392,9 +421,11 @@ class ProjectWindow(QMainWindow):
 
         # ── Menubar ───────────────────────────────────────────────────────
         home_action = QAction("Home", self)
+        home_action.setIcon(make_icon("home"))
         home_action.triggered.connect(self.show_home)
 
         self.log_action = QAction("Logs", self)
+        self.log_action.setIcon(make_icon("list"))
 
         self.menubar.addAction(home_action)
         self.menubar.addMenu(self.menuFile)
@@ -407,12 +438,21 @@ class ProjectWindow(QMainWindow):
         top_bar_layout.addWidget(self.save_status_bar)
 
         self.btn_calculate = QPushButton("Calculate")
+        self.btn_calculate.setIcon(make_icon("bolt"))
+        self.btn_calculate.setIconSize(QSize(16, 16))
         self.btn_calculate.clicked.connect(self._run_calculate)
         top_bar_layout.addWidget(self.btn_calculate)
 
         self._frozen = False
         self._lock_tooltip = "Lock project to prevent editing"
-        self.btn_lock = QPushButton("Lock")
+        self.btn_lock = make_icon_btn("lock-open", tooltip="Lock project to prevent editing", size=32)
+        self.btn_lock.setStyleSheet(
+            "QPushButton         { border-radius:16px; padding:0px; border:none; background:transparent; }"
+            "QPushButton:hover   { border-radius:16px; padding:0px; background:rgba(46,204,113,40); }"
+            "QPushButton:pressed { border-radius:16px; padding:0px; background:rgba(46,204,113,80); }"
+            "QPushButton:checked { border-radius:16px; padding:0px; background:rgba(241,196,15,180); }"
+            "QPushButton:checked:hover { border-radius:16px; padding:0px; background:rgba(241,196,15,220); }"
+        )
         self.btn_lock.setCheckable(True)
         self.btn_lock.installEventFilter(self)
         self.btn_lock.clicked.connect(self._on_lock_toggled)
@@ -427,12 +467,18 @@ class ProjectWindow(QMainWindow):
         for header, subheaders in SIDEBAR_TREE.items():
             top_item = QTreeWidgetItem(self.sidebar)
             top_item.setText(0, header)
+            if header in _SIDEBAR_ICONS:
+                top_item.setIcon(0, make_icon(_SIDEBAR_ICONS[header]))
             for subheader, subitems in subheaders.items():
                 sub_item = QTreeWidgetItem(top_item)
                 sub_item.setText(0, subheader)
+                if subheader in _SIDEBAR_ICONS:
+                    sub_item.setIcon(0, make_icon(_SIDEBAR_ICONS[subheader]))
                 for subitem in subitems:
                     leaf = QTreeWidgetItem(sub_item)
                     leaf.setText(0, subitem)
+                    if subitem in _SIDEBAR_ICONS:
+                        leaf.setIcon(0, make_icon(_SIDEBAR_ICONS[subitem]))
 
         self.sidebar.expandAll()
         self.sidebar.itemPressed.connect(self._select_sidebar)
@@ -569,7 +615,7 @@ class ProjectWindow(QMainWindow):
             self.outputs_page.reset_for_edit()
 
         self._frozen = checked
-        self.btn_lock.setText("Unlock" if checked else "Lock")
+        self.btn_lock.setIcon(make_icon("lock" if checked else "lock-open"))
         self._lock_tooltip = (
             "Project is locked — click here to unlock"
             if checked else

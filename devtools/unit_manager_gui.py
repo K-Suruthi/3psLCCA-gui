@@ -460,7 +460,8 @@ class BuiltinUnitsTab(QWidget):
 
         fr.addStretch()
 
-        self._edit_btn = QPushButton("Edit")
+        # self._edit_btn = QPushButton("Edit")
+        self._edit_btn = QPushButton("✏️")
         self._edit_btn.setFixedHeight(30)
         self._edit_btn.setEnabled(False)
         self._edit_btn.setStyleSheet(

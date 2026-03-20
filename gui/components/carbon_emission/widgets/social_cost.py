@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt, QTimer
 from ...base_widget import ScrollableForm
 from ...utils.form_builder.form_definitions import FieldDef, Section
 from ...utils.form_builder.form_builder import build_form
+from ...utils.display_format import fmt, DECIMAL_PLACES
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -69,7 +70,7 @@ NITI_FIELDS = [
         "INR Conversion Rate",
         "As NITI Aayog values are in INR, provide conversion to your global currency.",
         "float",
-        options=(1e-6, 1e6, 6),
+        options=(1e-6, 1e6, DECIMAL_PLACES),
         unit="Currency/INR",
     ),
 ]
@@ -80,7 +81,7 @@ RICKE_FIELDS = [
         "USD Conversion Rate",
         "Conversion rate for international scientific model outputs.",
         "float",
-        options=(1e-6, 1e6, 6),
+        options=(1e-6, 1e6, DECIMAL_PLACES),
         unit="Currency/USD",
     ),
     FieldDef(
@@ -104,7 +105,7 @@ CUSTOM_FIELDS = [
         "Social Cost of Carbon (SCC)",
         "The financial cost attributed to 1 kg of CO₂e emissions.",
         "float",
-        options=(0.0, 1e6, 6),
+        options=(0.0, 1e6, DECIMAL_PLACES),
         unit="Currency/kgCO₂e",
     ),
 ]
@@ -303,8 +304,8 @@ class SocialCost(ScrollableForm):
         rate = self.inr_to_local_rate.value() if cur != "INR" else 1.0
         val = NITI_AAYOG_SCC_INR * rate
         self._niti_result_lbl.setText(
-            f"NITI Aayog Base: <b>{NITI_AAYOG_SCC_INR} INR/kgCO₂e</b><br/>"
-            f"Adjusted Local Cost: <b>{val:.6f} {cur}/kgCO₂e</b>"
+            f"NITI Aayog Base: <b>{fmt(NITI_AAYOG_SCC_INR)} INR/kgCO₂e</b><br/>"
+            f"Adjusted Local Cost: <b>{fmt(val)} {cur}/kgCO₂e</b>"
         )
         self._set_result(
             val,
@@ -342,8 +343,8 @@ class SocialCost(ScrollableForm):
             )
         else:
             self._ricke_result_lbl.setText(
-                f"Scenario Baseline: <b>${base:.4f} USD/kg</b><br/>"
-                f"Adjusted Local Cost: <b>{val:.6f} {cur}/kgCO₂e</b>"
+                f"Scenario Baseline: <b>${fmt(base)} USD/kg</b><br/>"
+                f"Adjusted Local Cost: <b>{fmt(val)} {cur}/kgCO₂e</b>"
             )
             self._set_result(
                 val,
@@ -375,12 +376,12 @@ class SocialCost(ScrollableForm):
         if mode is not None and base_price is not None and conversion_rate is not None:
             self._result_lbl.setText(
                 f"<b>Selected Mode:</b> {mode}<br/>"
-                f"<b>Base Price:</b> {base_price} {base_unit}<br/>"
-                f"<b>Conversion Rate:</b> {conversion_rate} {rate_unit}<br/>"
-                f"<b>Effective SCC:</b> {value:.6f} {cur}/kgCO₂e"
+                f"<b>Base Price:</b> {fmt(base_price)} {base_unit}<br/>"
+                f"<b>Conversion Rate:</b> {fmt(conversion_rate)} {rate_unit}<br/>"
+                f"<b>Effective SCC:</b> {fmt(value)} {cur}/kgCO₂e"
             )
         else:
-            self._result_lbl.setText(f"<b>Effective SCC: {value:.6f} {cur}/kgCO₂e</b>")
+            self._result_lbl.setText(f"<b>Effective SCC: {fmt(value)} {cur}/kgCO₂e</b>")
 
     # ── Global sync ───────────────────────────────────────────────────────────
 
@@ -433,7 +434,7 @@ class SocialCost(ScrollableForm):
             "niti": {
                 "base_value_inr": NITI_AAYOG_SCC_INR,
                 "inr_to_local_rate": niti_rate,
-                "cost_local": round(niti_val, 6),
+                "cost_local": round(niti_val, DECIMAL_PLACES),
                 "currency": cur,
             },
             "ricke": {
@@ -441,7 +442,7 @@ class SocialCost(ScrollableForm):
                 "rcp": rcp,
                 "base_value_usd": usd_base,
                 "usd_to_local_rate": usd_rate,
-                "cost_local": round(ricke_val, 6),
+                "cost_local": round(ricke_val, DECIMAL_PLACES),
                 "currency": cur,
             },
             "custom": {
@@ -466,7 +467,7 @@ class SocialCost(ScrollableForm):
                     else usd_rate if _MODE_RICKE in mode
                     else 1.0
                 ),
-                "cost_of_carbon_local": round(final, 6),
+                "cost_of_carbon_local": round(final, DECIMAL_PLACES),
                 "currency": cur,
                 "unit": f"{cur}/kgCO₂e",
             },
