@@ -167,35 +167,51 @@ _TEMPLATE = (
 
 class _SvgIconEngine(QIconEngine):
     """Renders an SVG icon at whatever size Qt requests and in the current
-    palette's foreground color — crisp on HiDPI, works on light and dark themes."""
+    palette's foreground color — crisp on HiDPI, works on light and dark themes.
+
+    Pixmaps are cached by (body, color, w, h) so each unique combination is
+    rendered only once.  The cache is cleared on QApplication.paletteChanged
+    so theme switches re-render cleanly without flooding the event loop.
+    """
+
+    # Cache keyed by (body, color, w, h) — dark and light entries coexist,
+    # so theme switches are instant after the first render of each color.
+    _cache: dict = {}
 
     def __init__(self, body: str):
         super().__init__()
         self._body = body
 
     def _fg_color(self, mode: QIcon.Mode) -> str:
-        if mode == QIcon.Mode.Disabled:
-            app = QApplication.instance()
-            if app:
-                return app.palette().placeholderText().color().name()
-            return "#aaaaaa"
         app = QApplication.instance()
-        if app:
-            return app.palette().windowText().color().name()
-        return "#333333"
+        if mode == QIcon.Mode.Disabled:
+            return app.palette().placeholderText().color().name() if app else "#aaaaaa"
+        return app.palette().windowText().color().name() if app else "#333333"
+
+    @classmethod
+    def _render(cls, body: str, color: str, w: int, h: int) -> QPixmap:
+        key = (body, color, w, h)
+        if key not in cls._cache:
+            svg = _TEMPLATE.format(color=color, body=body).encode()
+            renderer = QSvgRenderer(QByteArray(svg))
+            pix = QPixmap(w, h)
+            pix.fill(Qt.GlobalColor.transparent)
+            p = QPainter(pix)
+            renderer.render(p, QRectF(0, 0, w, h))
+            p.end()
+            cls._cache[key] = pix
+        return cls._cache[key]
 
     def paint(self, painter: QPainter, rect: QRect, mode: QIcon.Mode, state: QIcon.State):
-        svg = _TEMPLATE.format(color=self._fg_color(mode), body=self._body).encode()
-        renderer = QSvgRenderer(QByteArray(svg))
-        renderer.render(painter, QRectF(rect))
+        dpr = painter.device().devicePixelRatioF() if painter.device() else 1.0
+        w = max(1, round(rect.width() * dpr))
+        h = max(1, round(rect.height() * dpr))
+        pix = self._render(self._body, self._fg_color(mode), w, h)
+        pix.setDevicePixelRatio(dpr)
+        painter.drawPixmap(rect.topLeft(), pix)
 
     def pixmap(self, size, mode: QIcon.Mode, state: QIcon.State) -> QPixmap:
-        pix = QPixmap(size)
-        pix.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pix)
-        self.paint(painter, QRect(QPoint(0, 0), size), mode, state)
-        painter.end()
-        return pix
+        return self._render(self._body, self._fg_color(mode), size.width(), size.height())
 
     def clone(self) -> "_SvgIconEngine":
         return _SvgIconEngine(self._body)

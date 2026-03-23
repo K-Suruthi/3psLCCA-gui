@@ -10,17 +10,22 @@ from PySide6.QtWidgets import (
     QFrame,
     QSizePolicy,
     QScrollArea,
-    QStyleOptionHeader,
+    QToolTip,
+    QGraphicsDropShadowEffect,
 )
-from PySide6.QtCore import Qt, QSize, QTimer, QRect
-from PySide6.QtGui import QPainter
+from PySide6.QtCore import Qt, QSize, QTimer, QRect, QEvent
+from PySide6.QtGui import QColor
 import time
 import datetime
 
 from ..utils.definitions import UNIT_DISPLAY
 from ..utils.display_format import fmt, fmt_comma
-from ..utils.icons import make_icon, make_icon_btn
-from ..utils.validation_helpers import freeze_widgets
+from ..utils.icons import make_icon
+from ..utils.table_widgets import (
+    GroupedHeaderView,
+    BaseActionDelegate,
+    TooltipTableMixin,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -33,6 +38,8 @@ CHUNKS = [
     ("str_super_structure", "Super Structure"),
     ("str_misc", "Misc"),
 ]
+
+_ACTION_W = 80  # fixed action column width
 
 
 # ---------------------------------------------------------------------------
@@ -56,11 +63,13 @@ def _recycle_pct(v: dict) -> float:
 def is_recyclable_valid(item: dict) -> bool:
     v = item.get("values", {})
     try:
-        return all([
-            _recycle_pct(v) > 0,
-            float(v.get("scrap_rate", 0) or 0) > 0,
-            float(v.get("quantity", 0) or 0) > 0,
-        ])
+        return all(
+            [
+                _recycle_pct(v) > 0,
+                float(v.get("scrap_rate", 0) or 0) > 0,
+                float(v.get("quantity", 0) or 0) > 0,
+            ]
+        )
     except (TypeError, ValueError):
         return False
 
@@ -78,65 +87,154 @@ def calc_recovered_value(item: dict) -> float:
     """Recovered Value = Recyclable Qty × scrap_rate"""
     v = item.get("values", {})
     try:
-        recyclable_qty = calc_recyclable_qty(item)
-        scrap_rate = float(v.get("scrap_rate", 0) or 0)
-        return recyclable_qty * scrap_rate
+        return calc_recyclable_qty(item) * float(v.get("scrap_rate", 0) or 0)
     except (TypeError, ValueError):
         return 0.0
 
 
 # ---------------------------------------------------------------------------
-# Two-tier grouped header
+# Action column delegate
 # ---------------------------------------------------------------------------
 
 
-class _GroupedHeader(QHeaderView):
-    """Horizontal header with spanning group labels on the top tier and
-    individual column labels on the bottom tier."""
+class _RecyclingActionDelegate(BaseActionDelegate):
+    """Paints circular icon buttons in the recycling table action column.
 
-    def __init__(self, groups=(), parent=None):
-        super().__init__(Qt.Horizontal, parent)
-        self._groups = list(groups)
-        self._col_group: dict[int, tuple] = {}
-        for start, span, label in self._groups:
-            for c in range(start, start + span):
-                self._col_group[c] = (start, span, label)
+    Per-row data stored in the action item's Qt.UserRole as a dict:
+        {"btns": ["edit", "exclude"], "chunk_id": ..., "comp_name": ...,
+         "idx": ..., "item": ...}
+    """
 
-    def sizeHint(self):
-        s = super().sizeHint()
-        return QSize(s.width(), s.height() * 2) if self._groups else s
+    _ICON_CFG = {
+        "edit": (None, (46, 204, 113), "Edit"),
+        "exclude": ("#e74c3c", (231, 76, 60), "Exclude from calculation"),
+        "include": ("#2ecc71", (46, 204, 113), "Include in calculation"),
+    }
 
-    def paintSection(self, painter, rect, logical_index):
-        if not self._groups or logical_index not in self._col_group:
-            super().paintSection(painter, rect, logical_index)
-            return
-        h2 = rect.height() // 2
-        bottom = QRect(rect.x(), rect.y() + h2, rect.width(), h2)
-        painter.save()
-        painter.setClipRect(bottom)
-        super().paintSection(painter, bottom, logical_index)
-        painter.restore()
+    def __init__(self, table, handler):
+        super().__init__(table)
+        self._handler = handler
+        self._icons = {
+            key: (make_icon(key, color=color), hover_rgb, tooltip)
+            for key, (color, hover_rgb, tooltip) in self._ICON_CFG.items()
+        }
 
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        if not self._groups:
-            return
-        painter = QPainter(self.viewport())
-        h2 = self.height() // 2
-        for start, span, label in self._groups:
-            x = self.sectionViewportPosition(start)
-            total_w = sum(self.sectionSize(start + i) for i in range(span))
-            group_rect = QRect(x, 0, total_w, h2)
-            opt = QStyleOptionHeader()
-            self.initStyleOption(opt)
-            opt.rect = group_rect
-            opt.section = start
-            opt.text = label
-            opt.textAlignment = Qt.AlignCenter | Qt.AlignVCenter
-            opt.position = QStyleOptionHeader.Middle
-            opt.selectedPosition = QStyleOptionHeader.NotAdjacent
-            self.style().drawControl(self.style().ControlElement.CE_Header, opt, painter, self)
-        painter.end()
+    def _raw_row_data(self, row) -> dict | None:
+        item = self._table.item(row, 0)
+        return item.data(Qt.UserRole) if item else None
+
+    def _get_btns_for_row(self, row) -> list[tuple]:
+        data = self._raw_row_data(row)
+        if not data:
+            return []
+        return [self._icons[key] for key in data.get("btns", [])]
+
+    def sizeHint(self, option, index):
+        return QSize(_ACTION_W, self.BTN_SIZE + 14)
+
+    def editorEvent(self, event, model, option, index):
+        if self._frozen:
+            return False
+        if event.type() == QEvent.MouseButtonRelease:
+            data = self._raw_row_data(index.row())
+            if not data:
+                return False
+            btn_keys = data.get("btns", [])
+            rects = self._btn_rects(option.rect, len(btn_keys))
+            for i, key in enumerate(btn_keys):
+                if rects[i].contains(event.pos()):
+                    ci, cn, idx, it = (
+                        data["chunk_id"],
+                        data["comp_name"],
+                        data["idx"],
+                        data["item"],
+                    )
+                    if key == "edit":
+                        self._handler._open_recyclability_edit(ci, cn, idx, it)
+                    elif key == "exclude":
+                        self._handler._toggle_inclusion(ci, cn, idx, False)
+                    elif key == "include":
+                        self._handler._toggle_inclusion(ci, cn, idx, True)
+                    return True
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Frozen Action overlay — single-column widget pinned to the right edge
+# ---------------------------------------------------------------------------
+
+
+class _FrozenActionTable(QTableWidget):
+    """Overlay pinned to the right edge; main table reserves space via setViewportMargins."""
+
+    def __init__(self, parent_table):
+        super().__init__(parent_table)
+        self._parent_table = parent_table
+
+        self.setColumnCount(1)
+        hdr_item = QTableWidgetItem("Action")
+        hdr_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        self.setHorizontalHeaderItem(0, hdr_item)
+
+        self.setFixedWidth(_ACTION_W)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setSelectionMode(QTableWidget.NoSelection)
+        self.setFrameShape(QTableWidget.NoFrame)
+        self.setStyleSheet(
+            """
+            QTableWidget {
+                border-top-left-radius: 0px;
+                border-bottom-left-radius: 0px;
+            }
+        """
+        )
+
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(6)
+        shadow.setOffset(-3, 0)
+        shadow.setColor(QColor(0, 0, 0, 40))
+        self.setGraphicsEffect(shadow)
+
+        self.verticalHeader().setVisible(False)
+        self.verticalHeader().setDefaultSectionSize(35)
+        self.verticalHeader().setMinimumSectionSize(35)
+
+        hdr = self.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.Fixed)
+        self.setColumnWidth(0, _ACTION_W)
+
+        parent_table.verticalScrollBar().valueChanged.connect(
+            self.verticalScrollBar().setValue
+        )
+
+    def sync_row_heights(self):
+        for r in range(self.rowCount()):
+            self.setRowHeight(r, self._parent_table.rowHeight(r))
+
+    def add_row(self, row_data):
+        row = self.rowCount()
+        self.insertRow(row)
+        self.setRowHeight(row, self._parent_table.rowHeight(row))
+        item = QTableWidgetItem()
+        item.setData(Qt.UserRole, row_data)
+        item.setFlags(Qt.ItemIsEnabled)
+        self.setItem(row, 0, item)
+
+    def clear_rows(self):
+        self.setRowCount(0)
+
+    def reposition(self):
+        p = self._parent_table
+        main_hdr_h = p.horizontalHeader().height()
+        self.horizontalHeader().setFixedHeight(main_hdr_h)
+        vp = p.viewport()
+        x = p.width() - _ACTION_W
+        y = vp.y() - main_hdr_h
+        self.move(x, y)
+        self.setFixedHeight(vp.height() + main_hdr_h)
 
 
 # ---------------------------------------------------------------------------
@@ -144,46 +242,45 @@ class _GroupedHeader(QHeaderView):
 # ---------------------------------------------------------------------------
 
 
-class RecyclingTable(QTableWidget):
-    _L = Qt.AlignLeft  | Qt.AlignVCenter
+class RecyclingTable(TooltipTableMixin, QTableWidget):
+    _L = Qt.AlignLeft | Qt.AlignVCenter
     _R = Qt.AlignRight | Qt.AlignVCenter
     _C = Qt.AlignCenter
 
     # Cols 2-3 → "Qty" group (Value + Unit)
     _GROUPS = [(2, 2, "Qty")]
 
-    # Included: Cat | Material | Value | Unit | Recyclability% | Recyclable Qty | Scrap Rate | Recovered Value | Warning | Action
     INCLUDED_HEADERS = [
-        ("Category",        _L),  # 0
-        ("Material",        _L),  # 1
-        ("Value",           _C),  # 2  ┐ Qty group (sub-col → center)
-        ("Unit",            _C),  # 3  ┘
+        ("Category", _L),  # 0
+        ("Material", _L),  # 1
+        ("Value", _C),  # 2  ┐ Qty group
+        ("Unit", _C),  # 3  ┘
         ("Recyclability %", _R),  # 4
-        ("Recyclable Qty",  _R),  # 5
-        ("Scrap Rate",      _R),  # 6
+        ("Recyclable Qty", _R),  # 5
+        ("Scrap Rate", _R),  # 6
         ("Recovered Value", _R),  # 7
-        ("Warning",         _L),  # 8
-        ("Action",          _C),  # 9
+        ("Warning", _L),  # 8
+        ("Action", _C),  # 9
+        ("", _C),  # 10 placeholder
     ]
 
-    # Excluded: Cat | Material | Value | Unit | Recyclability% | Scrap Rate | Reason | Warning | Action
     EXCLUDED_HEADERS = [
-        ("Category",        _L),  # 0
-        ("Material",        _L),  # 1
-        ("Value",           _C),  # 2  ┐ Qty group (sub-col → center)
-        ("Unit",            _C),  # 3  ┘
+        ("Category", _L),  # 0
+        ("Material", _L),  # 1
+        ("Value", _C),  # 2  ┐ Qty group
+        ("Unit", _C),  # 3  ┘
         ("Recyclability %", _R),  # 4
-        ("Scrap Rate",      _R),  # 5
-        ("Reason",          _L),  # 6
-        ("Warning",         _L),  # 7
-        ("Action",          _C),  # 8
+        ("Scrap Rate", _R),  # 5
+        ("Reason", _L),  # 6
+        ("Action", _C),  # 7
+        ("", _C),  # 8 placeholder
     ]
 
     def __init__(self, is_included: bool, parent=None):
         super().__init__(parent)
         self.is_included = is_included
 
-        self.setHorizontalHeader(_GroupedHeader(groups=self._GROUPS))
+        self.setHorizontalHeader(GroupedHeaderView(groups=self._GROUPS))
 
         headers = self.INCLUDED_HEADERS if is_included else self.EXCLUDED_HEADERS
         self.setColumnCount(len(headers))
@@ -195,79 +292,100 @@ class RecyclingTable(QTableWidget):
         h = self.horizontalHeader()
         h.setSectionResizeMode(QHeaderView.Interactive)
         h.setStretchLastSection(False)
-        h.setMinimumSectionSize(40)
+        h.setMinimumSectionSize(60)
 
         self.setEditTriggers(QTableWidget.NoEditTriggers)
         self.setSelectionMode(QTableWidget.NoSelection)
+        self.setWordWrap(True)
+        self.setTextElideMode(Qt.ElideNone)
         self.verticalHeader().setDefaultSectionSize(35)
+        self.verticalHeader().setMinimumSectionSize(35)
         self.verticalHeader().setVisible(False)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
-        self._set_column_widths()
+        # Hide real action col; placeholder reserves overlay space
+        action_col = len(headers) - 2
+        placeholder_col = len(headers) - 1
+        h.setSectionResizeMode(action_col, QHeaderView.Fixed)
+        self.setColumnWidth(action_col, 0)
+        self.setColumnHidden(action_col, True)
+        h.setSectionResizeMode(placeholder_col, QHeaderView.Fixed)
+        self.setColumnWidth(placeholder_col, _ACTION_W)
 
-    def _set_column_widths(self):
-        # Initial defaults at ~800px viewport (rest ≈ 720px)
-        if self.is_included:
-            for col, w in enumerate([65, 151, 43, 43, 58, 79, 58, 86, 137, 80]):
-                self.setColumnWidth(col, w)
-        else:
-            for col, w in enumerate([72, 158, 43, 43, 58, 58, 180, 108, 80]):
-                self.setColumnWidth(col, w)
+        self.setViewportMargins(0, 0, _ACTION_W, 0)
+
+        self._frozen_overlay = _FrozenActionTable(self)
+        self._frozen_overlay.show()
+
+    def viewportEvent(self, event):
+        if event.type() == QEvent.ToolTip:
+            index = self.indexAt(event.pos())
+            action_col = self.columnCount() - 1
+            if index.isValid() and index.column() != action_col:
+                item = self.item(index.row(), index.column())
+                if item and item.text():
+                    QToolTip.showText(event.globalPos(), item.text(), self)
+                    return True
+            QToolTip.hideText()
+        return super().viewportEvent(event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        total = self.viewport().width()
-        action_w = 80
-        rest = max(1, total - action_w)
-
-        # Qty sub-columns equal so spanning "Qty" label stays centred
+        rest = max(1, self.viewport().width())
         qty_sub = max(40, int(rest * 0.06))
 
         if self.is_included:
             widths = {
-                0: max(65,  int(rest * 0.09)),  # Category
+                0: max(120, int(rest * 0.09)),  # Category
                 1: max(100, int(rest * 0.21)),  # Material
-                2: qty_sub,                     # Qty › Value
-                3: qty_sub,                     # Qty › Unit
-                4: max(55,  int(rest * 0.08)),  # Recyclability %
-                5: max(70,  int(rest * 0.11)),  # Recyclable Qty
-                6: max(55,  int(rest * 0.08)),  # Scrap Rate
-                7: max(80,  int(rest * 0.12)),  # Recovered Value
-                8: max(80,  int(rest * 0.19)),  # Warning
-                9: action_w,
+                2: qty_sub,  # Qty › Value
+                3: qty_sub,  # Qty › Unit
+                4: max(55, int(rest * 0.08)),  # Recyclability %
+                5: max(70, int(rest * 0.11)),  # Recyclable Qty
+                6: max(55, int(rest * 0.08)),  # Scrap Rate
+                7: max(80, int(rest * 0.12)),  # Recovered Value
+                8: max(80, int(rest * 0.19)),  # Warning
             }
         else:
             widths = {
-                0: max(65,  int(rest * 0.10)),  # Category
+                0: max(120, int(rest * 0.10)),  # Category
                 1: max(100, int(rest * 0.22)),  # Material
-                2: qty_sub,                     # Qty › Value
-                3: qty_sub,                     # Qty › Unit
-                4: max(55,  int(rest * 0.08)),  # Recyclability %
-                5: max(55,  int(rest * 0.08)),  # Scrap Rate
-                6: max(100, int(rest * 0.25)),  # Reason
-                7: max(80,  int(rest * 0.15)),  # Warning
-                8: action_w,
+                2: qty_sub,  # Qty › Value
+                3: qty_sub,  # Qty › Unit
+                4: max(55, int(rest * 0.08)),  # Recyclability %
+                5: max(55, int(rest * 0.08)),  # Scrap Rate
+                6: max(100, int(rest * 0.40)),  # Reason
             }
 
         for col, width in widths.items():
             self.setColumnWidth(col, width)
+        self.resizeRowsToContents()
+
+        self._frozen_overlay.reposition()
+        self._frozen_overlay.sync_row_heights()
 
     def sizeHint(self):
         header_h = self.horizontalHeader().height() or 35
-        rows_h = self.rowCount() * self.verticalHeader().defaultSectionSize()
+        rows_h = sum(self.rowHeight(r) for r in range(self.rowCount()))
         return QSize(super().sizeHint().width(), max(60, header_h + rows_h + 10))
 
     def minimumSizeHint(self):
         return self.sizeHint()
 
     def update_height(self):
+        self.resizeRowsToContents()
         self.updateGeometry()
 
     def clear_rows(self):
         self.setRowCount(0)
+        self._frozen_overlay.clear_rows()
         self.updateGeometry()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._frozen_overlay.reposition()
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +431,6 @@ class Recycling(QWidget):
         summary_layout.addWidget(self.count_lbl)
         summary_layout.addStretch()
         summary_layout.addWidget(self.details_btn)
-
         main_layout.addWidget(self.summary_bar)
 
         # ── Details Row (hidden by default) ──────────────────────────────
@@ -333,23 +450,32 @@ class Recycling(QWidget):
         details_layout.addStretch()
         self.details_widget.setVisible(False)
         main_layout.addWidget(self.details_widget)
-
         main_layout.addWidget(self._hline())
 
         # ── Included Section ─────────────────────────────────────────────
         main_layout.addWidget(self._section_label("Included in Recyclability"))
 
         self.included_table = RecyclingTable(is_included=True)
+        self._included_action = _RecyclingActionDelegate(
+            self.included_table._frozen_overlay, self
+        )
+        self.included_table._frozen_overlay.setItemDelegateForColumn(
+            0, self._included_action
+        )
         main_layout.addWidget(self.included_table)
-
         main_layout.addWidget(self._hline())
 
         # ── Excluded Section ─────────────────────────────────────────────
         main_layout.addWidget(self._section_label("Excluded from Recyclability"))
 
         self.excluded_table = RecyclingTable(is_included=False)
+        self._excluded_action = _RecyclingActionDelegate(
+            self.excluded_table._frozen_overlay, self
+        )
+        self.excluded_table._frozen_overlay.setItemDelegateForColumn(
+            0, self._excluded_action
+        )
         main_layout.addWidget(self.excluded_table)
-
         main_layout.addStretch()
 
         scroll.setWidget(container)
@@ -382,7 +508,6 @@ class Recycling(QWidget):
         )
 
     def _get_currency(self) -> str:
-        """Pull currency from financial_data chunk, fallback to empty."""
         try:
             data = self.controller.engine.fetch_chunk("financial_data") or {}
             return data.get("currency", "")
@@ -398,8 +523,19 @@ class Recycling(QWidget):
         result = self._compute()
 
         included_with_warn = [
-            (cat, chunk_id, comp, idx, item, value,
-             "! Zero Qty" if float(item.get("values", {}).get("quantity", 0) or 0) == 0 else "")
+            (
+                cat,
+                chunk_id,
+                comp,
+                idx,
+                item,
+                value,
+                (
+                    "! Zero Qty"
+                    if float(item.get("values", {}).get("quantity", 0) or 0) == 0
+                    else ""
+                ),
+            )
             for cat, chunk_id, comp, idx, item, value in result["included_items"]
         ]
 
@@ -423,9 +559,7 @@ class Recycling(QWidget):
             t.insertRow(row)
 
             unit = _fmt_unit(v.get("unit", ""))
-            recyclable_qty = (
-                f"{fmt(calc_recyclable_qty(item))} {unit}".strip()
-            )
+            recyclable_qty = f"{fmt(calc_recyclable_qty(item))} {unit}".strip()
             value_str = f"{currency} {fmt_comma(value)}".strip()
 
             def _ri(text):
@@ -435,8 +569,8 @@ class Recycling(QWidget):
 
             t.setItem(row, 0, QTableWidgetItem(category))
             t.setItem(row, 1, QTableWidgetItem(v.get("material_name", "")))
-            t.setItem(row, 2, _ri(fmt(v.get("quantity", 0))))   # Qty › Value
-            t.setItem(row, 3, QTableWidgetItem(unit))           # Qty › Unit
+            t.setItem(row, 2, _ri(fmt(v.get("quantity", 0))))
+            t.setItem(row, 3, QTableWidgetItem(unit))
             t.setItem(row, 4, _ri(f"{_recycle_pct(v):.1f}%"))
             t.setItem(row, 5, _ri(recyclable_qty))
             t.setItem(row, 6, _ri(fmt(v.get("scrap_rate", 0))))
@@ -447,18 +581,29 @@ class Recycling(QWidget):
             warn_item.setTextAlignment(Qt.AlignCenter)
             t.setItem(row, 8, warn_item)
 
-            edit_btn = make_icon_btn("edit", "Edit")
-            edit_btn.setFocusPolicy(Qt.NoFocus)
-            edit_btn.clicked.connect(
-                lambda _, ci=chunk_id, cn=comp_name, i=idx, it=item: self._open_recyclability_edit(ci, cn, i, it)
+            action_item = QTableWidgetItem()
+            action_item.setData(
+                Qt.UserRole,
+                {
+                    "btns": ["edit", "exclude"],
+                    "chunk_id": chunk_id,
+                    "comp_name": comp_name,
+                    "idx": idx,
+                    "item": item,
+                },
             )
-            excl_btn = make_icon_btn("exclude", "Exclude", icon_color="#e74c3c", hover_color="231, 76, 60")
-            excl_btn.setFocusPolicy(Qt.NoFocus)
-            excl_btn.clicked.connect(
-                lambda _, ci=chunk_id, cn=comp_name, i=idx: self._toggle_inclusion(ci, cn, i, False)
+            action_item.setFlags(Qt.ItemIsEnabled)
+            t.setItem(row, 9, action_item)
+            t.setItem(row, 10, QTableWidgetItem())  # placeholder
+            t._frozen_overlay.add_row(
+                {
+                    "btns": ["edit", "exclude"],
+                    "chunk_id": chunk_id,
+                    "comp_name": comp_name,
+                    "idx": idx,
+                    "item": item,
+                }
             )
-            freeze_widgets(self._frozen, edit_btn, excl_btn)
-            t.setCellWidget(row, 9, self._btn_container(edit_btn, excl_btn))
 
         t.update_height()
 
@@ -480,32 +625,36 @@ class Recycling(QWidget):
 
             t.setItem(row, 0, QTableWidgetItem(category))
             t.setItem(row, 1, QTableWidgetItem(v.get("material_name", "")))
-            t.setItem(row, 2, _ri(fmt(v.get("quantity", 0))))   # Qty › Value
-            t.setItem(row, 3, QTableWidgetItem(unit))           # Qty › Unit
+            t.setItem(row, 2, _ri(fmt(v.get("quantity", 0))))
+            t.setItem(row, 3, QTableWidgetItem(unit))
             t.setItem(row, 4, _ri(f"{_recycle_pct(v):.1f}%"))
             t.setItem(row, 5, _ri(fmt(v.get("scrap_rate", 0))))
             t.setItem(row, 6, QTableWidgetItem(reason))
-            warn_item = QTableWidgetItem("")
-            warn_item.setTextAlignment(Qt.AlignCenter)
-            t.setItem(row, 7, warn_item)
 
-            edit_btn = make_icon_btn("edit", "Edit")
-            edit_btn.setFocusPolicy(Qt.NoFocus)
-            edit_btn.clicked.connect(
-                lambda _, ci=chunk_id, cn=comp_name, i=idx, it=item: self._open_recyclability_edit(ci, cn, i, it)
+            btn_keys = ["edit"] if reason == "Missing Data" else ["edit", "include"]
+            action_item = QTableWidgetItem()
+            action_item.setData(
+                Qt.UserRole,
+                {
+                    "btns": btn_keys,
+                    "chunk_id": chunk_id,
+                    "comp_name": comp_name,
+                    "idx": idx,
+                    "item": item,
+                },
             )
-            freeze_widgets(self._frozen, edit_btn)
-
-            if reason == "Missing Data":
-                t.setCellWidget(row, 8, self._btn_container(edit_btn, align_left=True))
-            else:
-                incl_btn = make_icon_btn("include", "Include", icon_color="#2ecc71", hover_color="46, 204, 113")
-                incl_btn.setFocusPolicy(Qt.NoFocus)
-                incl_btn.clicked.connect(
-                    lambda _, ci=chunk_id, cn=comp_name, i=idx: self._toggle_inclusion(ci, cn, i, True)
-                )
-                freeze_widgets(self._frozen, incl_btn)
-                t.setCellWidget(row, 8, self._btn_container(edit_btn, incl_btn, align_left=True))
+            action_item.setFlags(Qt.ItemIsEnabled)
+            t.setItem(row, 7, action_item)
+            t.setItem(row, 8, QTableWidgetItem())  # placeholder
+            t._frozen_overlay.add_row(
+                {
+                    "btns": btn_keys,
+                    "chunk_id": chunk_id,
+                    "comp_name": comp_name,
+                    "idx": idx,
+                    "item": item,
+                }
+            )
 
         t.update_height()
 
@@ -521,7 +670,6 @@ class Recycling(QWidget):
             f"Total Recovered Value: {currency} {fmt_comma(total)}".strip()
         )
         self.count_lbl.setText(f"Included: {included} of {total_count} items")
-
         self.foundation_lbl.setText(
             f"Foundation: {currency} {fmt_comma(cat_totals.get('Foundation', 0))}".strip()
         )
@@ -547,28 +695,26 @@ class Recycling(QWidget):
             self._mark_dirty()
             QTimer.singleShot(0, self.on_refresh)
 
-    def _btn_container(self, *buttons, align_left: bool = False) -> QWidget:
-        w = QWidget()
-        h = QHBoxLayout(w)
-        h.setContentsMargins(2, 2, 2, 2)
-        h.setSpacing(4)
-        for btn in buttons:
-            h.addWidget(btn)
-        if align_left:
-            h.addStretch()
-        return w
-
-    def _open_recyclability_edit(self, chunk_id: str, comp_name: str, data_index: int, item: dict):
+    def _open_recyclability_edit(
+        self, chunk_id: str, comp_name: str, data_index: int, item: dict
+    ):
         from ..structure.widgets.material_dialog import MaterialDialog
-        dialog = MaterialDialog(comp_name, parent=self, data=item, recyclability_only=True)
+
+        dialog = MaterialDialog(
+            comp_name, parent=self, data=item, recyclability_only=True
+        )
         if dialog.exec():
             vals = dialog.get_values()
             data = self.controller.engine.fetch_chunk(chunk_id) or {}
             if comp_name in data and data_index < len(data[comp_name]):
                 target = data[comp_name][data_index]
-                target["values"]["post_demolition_recovery_percentage"] = vals.get("post_demolition_recovery_percentage", 0.0)
+                target["values"]["post_demolition_recovery_percentage"] = vals.get(
+                    "post_demolition_recovery_percentage", 0.0
+                )
                 target["values"]["scrap_rate"] = vals.get("scrap_rate", 0.0)
-                target["state"]["included_in_recyclability"] = vals.get("_included_in_recyclability", True)
+                target["state"]["included_in_recyclability"] = vals.get(
+                    "_included_in_recyclability", True
+                )
                 target["meta"]["modified_on"] = datetime.datetime.now().isoformat()
                 self.controller.engine.stage_update(chunk_name=chunk_id, data=data)
                 self._mark_dirty()
@@ -614,7 +760,9 @@ class Recycling(QWidget):
 
                     total_count += 1
                     valid = is_recyclable_valid(item)
-                    included = item.get("state", {}).get("included_in_recyclability", True)
+                    included = item.get("state", {}).get(
+                        "included_in_recyclability", True
+                    )
 
                     if valid and included:
                         included_count += 1
@@ -642,8 +790,8 @@ class Recycling(QWidget):
 
     def freeze(self, frozen: bool = True):
         self._frozen = frozen
-        self.included_table.setEnabled(not frozen)
-        self.excluded_table.setEnabled(not frozen)
+        self._included_action.set_frozen(frozen)
+        self._excluded_action.set_frozen(frozen)
 
     def validate(self) -> dict:
         result = self._compute()

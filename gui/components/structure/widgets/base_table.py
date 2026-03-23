@@ -1,99 +1,212 @@
 from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
-    QPushButton,
     QHeaderView,
     QSizePolicy,
-    QWidget,
-    QHBoxLayout,
     QMessageBox,
-    QStyleOptionHeader,
+    QGraphicsDropShadowEffect,
 )
-from PySide6.QtCore import Qt, QSize, QRect
-from PySide6.QtGui import QPainter, QFont
+from PySide6.QtCore import Qt, QSize, QRect, QEvent
+from PySide6.QtGui import QFont, QColor
 from ...utils.definitions import UNIT_DISPLAY
 from ...utils.display_format import fmt, fmt_comma
-from ...utils.icons import make_icon, make_icon_btn
-from ...utils.validation_helpers import freeze_widgets
-from gui.theme import FS_SM, FW_SEMIBOLD, SECONDARY
+from ...utils.icons import make_icon
+from ...utils.table_widgets import (
+    GroupedHeaderView,
+    BaseActionDelegate,
+    TooltipTableMixin,
+)
+from gui.theme import FS_SM, FW_SEMIBOLD
 
-
-# ---------------------------------------------------------------------------
-# Two-tier grouped header (shared pattern with CarbonTable)
-# ---------------------------------------------------------------------------
 
 _HDR_FONT = QFont("Ubuntu", FS_SM, FW_SEMIBOLD)
 
+_ACTION_W = 100  # fixed Action column width
+_ROW_H = 50  # row height — 11 px clearance top + bottom around 28 px button
 
-class _GroupedHeader(QHeaderView):
-    """Horizontal header with spanning group labels on the top tier and
-    individual column labels on the bottom tier.
 
-    groups: list of (start_col, span, label)
-    Columns NOT in any group span the full height with their label centred.
+# ---------------------------------------------------------------------------
+# Action column delegate — paints icon buttons directly, no QWidget overhead
+# ---------------------------------------------------------------------------
+
+
+class _ActionDelegate(BaseActionDelegate):
+    """Paints circular icon buttons in the Action column and handles clicks."""
+
+    BTN_GAP = 8
+
+    def __init__(self, table, manager, component_name, is_trash_view):
+        super().__init__(table)
+        self._manager = manager
+        self._component = component_name
+        self._trash_view = is_trash_view
+
+        if not is_trash_view:
+            self._btns = [
+                (make_icon("edit"), (46, 204, 113), "edit", "Edit"),
+                (
+                    make_icon("trash", color="#e74c3c"),
+                    (231, 76, 60),
+                    "trash",
+                    "Move to trash",
+                ),
+            ]
+        else:
+            self._btns = [
+                (make_icon("restore"), (46, 204, 113), "restore", "Restore"),
+                (
+                    make_icon("trash", color="#e74c3c"),
+                    (192, 57, 43),
+                    "delete",
+                    "Permanently delete",
+                ),
+            ]
+
+    def _get_btns_for_row(self, row) -> list[tuple]:
+        return [
+            (icon, hover_rgb, tooltip) for icon, hover_rgb, _, tooltip in self._btns
+        ]
+
+    def sizeHint(self, option, index):
+        return QSize(_ACTION_W, _ROW_H)
+
+    def editorEvent(self, event, model, option, index):
+        if self._frozen:
+            return False
+        if event.type() == QEvent.MouseButtonRelease:
+            original_index = index.data(Qt.UserRole)
+            rects = self._btn_rects(option.rect, len(self._btns))
+            for i, (_, _, action, *__) in enumerate(self._btns):
+                if rects[i].contains(event.pos()):
+                    if action == "edit":
+                        self._manager.open_edit_dialog(self._component, index.row())
+                    elif action == "trash":
+                        self._manager.toggle_trash_status(
+                            self._component, original_index, True
+                        )
+                    elif action == "restore":
+                        self._manager.toggle_trash_status(
+                            self._component, original_index, False
+                        )
+                    elif action == "delete":
+                        self._confirm_delete(original_index)
+                    return True
+        return False
+
+    def _confirm_delete(self, original_index):
+        reply = QMessageBox.warning(
+            self._table,
+            "Permanent Delete",
+            "This will permanently remove the item. This cannot be undone.\n\nContinue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self._manager.permanent_delete(self._component, original_index)
+
+
+# ---------------------------------------------------------------------------
+# Frozen Action overlay — single-column widget pinned to the right edge
+# ---------------------------------------------------------------------------
+
+
+class _FrozenActionTable(QTableWidget):
+    """
+    Overlay widget rendered on top of the right margin that StructureTableWidget
+    reserves via setViewportMargins(0, 0, _ACTION_W, 0).
+
+    Because the main table's viewport is already narrowed by _ACTION_W, no
+    scrollable column ever enters this zone — the overlay just sits on top of
+    the dead margin and nothing is hidden behind it.
     """
 
-    def __init__(self, groups=(), parent=None):
-        super().__init__(Qt.Horizontal, parent)
-        self._groups = list(groups)
-        self._col_group: dict[int, tuple] = {}
-        for start, span, label in self._groups:
-            for c in range(start, start + span):
-                self._col_group[c] = (start, span, label)
+    def __init__(self, parent_table: "StructureTableWidget"):
+        super().__init__(parent_table)
+        self._parent_table = parent_table
 
-    def sizeHint(self):
-        s = super().sizeHint()
-        return QSize(s.width(), s.height() * 2) if self._groups else s
+        self.setColumnCount(1)
+        hdr_item = QTableWidgetItem("Action")
+        hdr_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        self.setHorizontalHeaderItem(0, hdr_item)
+        self.horizontalHeader().setFont(_HDR_FONT)
 
-    def paintSection(self, painter, rect, logical_index):
-        painter.setFont(_HDR_FONT)
-        if not self._groups or logical_index not in self._col_group:
-            super().paintSection(painter, rect, logical_index)
-            return
+        self.setFixedWidth(_ACTION_W)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setSelectionMode(QTableWidget.NoSelection)
+        self.setFrameShape(QTableWidget.NoFrame)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.setStyleSheet(
+            """
+            QTableWidget {
+                border-top-left-radius: 0px;
+                border-bottom-left-radius: 0px;
+            }
+        """
+        )
 
-        h2 = rect.height() // 2
-        bottom = QRect(rect.x(), rect.y() + h2, rect.width(), h2)
+        # Left-side drop shadow
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(6)
+        shadow.setOffset(-3, 0)  # negative x = shadow on the left
+        shadow.setColor(QColor(0, 0, 0, 40))
+        self.setGraphicsEffect(shadow)
 
-        painter.save()
-        painter.setClipRect(bottom)
-        super().paintSection(painter, bottom, logical_index)
-        painter.restore()
+        self.verticalHeader().setVisible(False)
+        self.verticalHeader().setDefaultSectionSize(_ROW_H)
+        self.verticalHeader().setMinimumSectionSize(_ROW_H)
 
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        if not self._groups:
-            return
+        hdr = self.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.Fixed)
+        self.setColumnWidth(0, _ACTION_W)
 
-        painter = QPainter(self.viewport())
-        painter.setFont(_HDR_FONT)
-        h2 = self.height() // 2
+        # Sync vertical scroll with the main table
+        parent_table.verticalScrollBar().valueChanged.connect(
+            self.verticalScrollBar().setValue
+        )
 
-        for start, span, label in self._groups:
-            x = self.sectionViewportPosition(start)
-            total_w = sum(self.sectionSize(start + i) for i in range(span))
-            group_rect = QRect(x, 0, total_w, h2)
+    def sync_row_heights(self):
+        for r in range(self.rowCount()):
+            self.setRowHeight(r, self._parent_table.rowHeight(r))
 
-            opt = QStyleOptionHeader()
-            self.initStyleOption(opt)
-            opt.rect = group_rect
-            opt.section = start
-            opt.text = label
-            opt.textAlignment = Qt.AlignCenter | Qt.AlignVCenter
-            opt.position = QStyleOptionHeader.Middle
-            opt.selectedPosition = QStyleOptionHeader.NotAdjacent
-            self.style().drawControl(self.style().ControlElement.CE_Header, opt, painter, self)
+    def add_row(self, original_index: int):
+        row = self.rowCount()
+        self.insertRow(row)
+        self.setRowHeight(row, _ROW_H)
+        item = QTableWidgetItem()
+        item.setData(Qt.UserRole, original_index)
+        item.setFlags(Qt.ItemIsEnabled)
+        self.setItem(row, 0, item)
 
-        painter.end()
+    def reposition(self):
+        """
+        Sit flush against the right edge of the parent widget, aligned with
+        the top of the header.  Match the grouped header height exactly so
+        row 0 lines up with the main table's first data row.
+        """
+        p = self._parent_table
+        main_hdr_h = p.horizontalHeader().height()
+
+        # Force overlay header to same height as the two-tier grouped header
+        self.horizontalHeader().setFixedHeight(main_hdr_h)
+
+        # x: flush right edge of parent widget
+        # y: top of header = viewport top minus header height
+        vp = p.viewport()
+        x = p.width() - _ACTION_W
+        y = vp.y() - main_hdr_h
+        self.move(x, y)
+        self.setFixedHeight(p.viewport().height() + main_hdr_h)
 
 
 # ---------------------------------------------------------------------------
 # Structure table
 # ---------------------------------------------------------------------------
 
-_ACTION_W = 72   # fixed Action column width
 
-
-class StructureTableWidget(QTableWidget):
+class StructureTableWidget(TooltipTableMixin, QTableWidget):
     # Col 2-3 → "Qty" group (Value + Unit)
     _GROUPS = [(2, 2, "Qty")]
 
@@ -104,22 +217,23 @@ class StructureTableWidget(QTableWidget):
         self.is_trash_view = is_trash_view
         self._frozen = False
 
-        # Install grouped header before setting column count
-        self.setHorizontalHeader(_GroupedHeader(groups=self._GROUPS))
+        self.setHorizontalHeader(GroupedHeaderView(groups=self._GROUPS, font=_HDR_FONT))
 
-        # Setup 7 columns: Work Name, Rate, Value, Unit, Source, Total, Action
-        self.setColumnCount(7)
+        # 6 scrollable columns (0-5) + col 6 hidden (data/delegate only).
+        # The frozen overlay renders the Action UI on top of the reserved right margin.
+        self.setColumnCount(8)
         _L = Qt.AlignLeft | Qt.AlignVCenter
         _R = Qt.AlignRight | Qt.AlignVCenter
         _C = Qt.AlignCenter | Qt.AlignVCenter
         _headers = [
             ("Work Name", _L),  # 0
-            ("Rate",      _R),  # 1
-            ("Value",     _C),  # 2  ┐ Qty group (sub-col → center)
-            ("Unit",      _C),  # 3  ┘
-            ("Source",    _L),  # 4
-            ("Total",     _R),  # 5
-            ("Action",    _C),  # 6
+            ("Rate", _R),  # 1
+            ("Value", _C),  # 2  ┐ Qty group
+            ("Unit", _C),  # 3  ┘
+            ("Source", _L),  # 4
+            ("Total", _R),  # 5
+            ("Action", _C),  # 6  hidden — data/delegate only
+            ("", _C),  # 7  placeholder — same width as overlay, keeps Total visible
         ]
         for col, (label, align) in enumerate(_headers):
             item = QTableWidgetItem(label)
@@ -129,46 +243,59 @@ class StructureTableWidget(QTableWidget):
         hdr = self.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.Interactive)
         hdr.setStretchLastSection(False)
-        hdr.setMinimumSectionSize(40)
-        # Action column fixed width, always at right edge; Total stretches to fill
-        hdr.setSectionResizeMode(5, QHeaderView.Stretch)
+        hdr.setMinimumSectionSize(60)
+        hdr.setSectionResizeMode(5, QHeaderView.Stretch)  # Total fills remaining space
         hdr.setSectionResizeMode(6, QHeaderView.Fixed)
-        self.setColumnWidth(6, _ACTION_W)
+        self.setColumnWidth(6, 0)
+        self.setColumnHidden(6, True)
+        hdr.setSectionResizeMode(7, QHeaderView.Fixed)
+        self.setColumnWidth(7, _ACTION_W)
 
-        # Row selection & appearance
+        # KEY: reserve _ACTION_W px on the right so the viewport (and therefore
+        # all scrollable columns including Total) never extends into the overlay zone.
+        self.setViewportMargins(0, 0, _ACTION_W, 0)
+
         self.setSelectionBehavior(QTableWidget.SelectRows)
         self.setSelectionMode(QTableWidget.SingleSelection)
-
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.verticalHeader().setDefaultSectionSize(36)
+        self.setWordWrap(True)
+        self.setTextElideMode(Qt.ElideNone)
+        self.verticalHeader().setDefaultSectionSize(_ROW_H)
+        self.verticalHeader().setMinimumSectionSize(_ROW_H)
         self.verticalHeader().setVisible(False)
+
+        # Delegate on hidden col 6 (stores original_index, handles clicks)
+        self._action_delegate = _ActionDelegate(
+            self, parent_manager, component_name, is_trash_view
+        )
+        self.setItemDelegateForColumn(6, self._action_delegate)
+
+        # Frozen overlay
+        self._frozen_col = _FrozenActionTable(self)
+        self._frozen_action_delegate = _ActionDelegate(
+            self._frozen_col, parent_manager, component_name, is_trash_view
+        )
+        self._frozen_col.setItemDelegateForColumn(0, self._frozen_action_delegate)
+        self._frozen_col.show()
 
         if not self.is_trash_view:
             self.cellDoubleClicked.connect(self._on_cell_double_clicked)
 
         self.update_height()
 
-    def _confirm_permanent_delete(self, original_index):
-        reply = QMessageBox.warning(
-            self, "Permanent Delete",
-            "This will permanently remove the item. This cannot be undone.\n\nContinue?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            self.manager.permanent_delete(self.component_name, original_index)
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
     def _on_cell_double_clicked(self, row, column):
-        """Pass the visual row index to the manager to find the data and open the edit dialog."""
         if self._frozen:
             return
         self.manager.open_edit_dialog(self.component_name, row)
 
     def set_currency(self, code: str):
-        """Update Rate and Total column headers to show the project currency code."""
         suffix = f" ({code})" if code else ""
         for col, base in ((1, "Rate"), (5, "Total")):
             item = self.horizontalHeaderItem(col)
@@ -177,49 +304,43 @@ class StructureTableWidget(QTableWidget):
 
     def sizeHint(self):
         header_h = self.horizontalHeader().height() or 56
-        rows_h = self.rowCount() * self.verticalHeader().defaultSectionSize()
+        rows_h = sum(self.rowHeight(r) for r in range(self.rowCount()))
         return QSize(super().sizeHint().width(), header_h + rows_h + 2)
 
     def minimumSizeHint(self):
         return self.sizeHint()
 
     def update_height(self):
-        """Notifies the layout that the size hint changed — no fixed height needed."""
         self.updateGeometry()
 
+    # ------------------------------------------------------------------
+    # Row management
+    # ------------------------------------------------------------------
+
     def add_row(self, item_data, original_index):
-        """
-        Adds a row to the table reading from the 'values' nested block.
-        original_index links the visual row back to the full list in the JSON engine.
-        """
         self.blockSignals(True)
         row = self.rowCount()
         self.insertRow(row)
+        self.setRowHeight(row, _ROW_H)
 
         v = item_data.get("values", {})
 
-        # 0. Work Name
         self.setItem(row, 0, QTableWidgetItem(v.get("material_name", "New Item")))
 
-        # 1. Rate (right-aligned)
         rate_item = QTableWidgetItem(fmt_comma(v.get("rate", 0)))
         rate_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.setItem(row, 1, rate_item)
 
-        # 2. Qty › Value (right-aligned)
         qty_item = QTableWidgetItem(fmt(v.get("quantity", 0)))
         qty_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.setItem(row, 2, qty_item)
 
-        # 3. Qty › Unit (left-aligned)
         unit = v.get("unit", "")
         unit = UNIT_DISPLAY.get(unit.lower(), unit) if unit else unit
         self.setItem(row, 3, QTableWidgetItem(unit))
 
-        # 4. Source
         self.setItem(row, 4, QTableWidgetItem(v.get("rate_source", "Manual")))
 
-        # 5. Total (right-aligned, read-only)
         try:
             rate = float(v.get("rate", 0) or 0)
             qty = float(v.get("quantity", 0) or 0)
@@ -232,74 +353,76 @@ class StructureTableWidget(QTableWidget):
         total_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.setItem(row, 5, total_item)
 
-        # 6. Actions — right-aligned, compact margins
-        actions_widget = QWidget()
-        actions_layout = QHBoxLayout(actions_widget)
-        actions_layout.setContentsMargins(0, 0, 6, 0)
-        actions_layout.setSpacing(4)
-        actions_layout.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        # Col 6: hidden, stores original_index for delegate click handling
+        action_item = QTableWidgetItem()
+        action_item.setData(Qt.UserRole, original_index)
+        action_item.setFlags(Qt.ItemIsEnabled)
+        self.setItem(row, 6, action_item)
 
-        if not self.is_trash_view:
-            edit_btn = make_icon_btn("edit", "Edit")
-            edit_btn.setFocusPolicy(Qt.NoFocus)
-            edit_btn.clicked.connect(
-                lambda checked=False, r=row: self.manager.open_edit_dialog(
-                    self.component_name, r
-                )
-            )
-            actions_layout.addWidget(edit_btn)
+        # Col 7: empty placeholder — reserves space so Total is never hidden
+        self.setItem(row, 7, QTableWidgetItem())
 
-        if self.is_trash_view:
-            trash_btn = make_icon_btn("restore", "Restore")
-        else:
-            trash_btn = make_icon_btn("trash", "Move to trash", icon_color="#e74c3c", hover_color="231, 76, 60")
-        trash_btn.setFocusPolicy(Qt.NoFocus)
-        trash_btn.clicked.connect(
-            lambda checked=False, idx=original_index: self.manager.toggle_trash_status(
-                self.component_name, idx, not self.is_trash_view
-            )
-        )
-        actions_layout.addWidget(trash_btn)
-
-        if self.is_trash_view:
-            delete_btn = make_icon_btn("trash", "Delete permanently", icon_color="#e74c3c", hover_color="192, 57, 43")
-            delete_btn.setFocusPolicy(Qt.NoFocus)
-            delete_btn.clicked.connect(
-                lambda checked=False, idx=original_index: self._confirm_permanent_delete(idx)
-            )
-            actions_layout.addWidget(delete_btn)
-
-        if self._frozen:
-            for btn in actions_widget.findChildren(QPushButton):
-                btn.setEnabled(False)
-        self.setCellWidget(row, 6, actions_widget)
+        # Mirror in frozen overlay
+        self._frozen_col.add_row(original_index)
 
         self.blockSignals(False)
         self.update_height()
 
+    # ------------------------------------------------------------------
+    # Freeze / unfreeze
+    # ------------------------------------------------------------------
+
     def freeze(self, frozen: bool = True):
-        """Freeze/unfreeze action buttons in every row."""
         self._frozen = frozen
-        for row in range(self.rowCount()):
-            container = self.cellWidget(row, 6)
-            if container:
-                freeze_widgets(frozen, *container.findChildren(QPushButton))
+        self._action_delegate.set_frozen(frozen)
+        self._frozen_action_delegate.set_frozen(frozen)
+
+    # ------------------------------------------------------------------
+    # Layout / resize
+    # ------------------------------------------------------------------
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        total = self.viewport().width()
-        rest = max(1, total - _ACTION_W)
+        # viewport() is already _ACTION_W narrower thanks to setViewportMargins.
+        # Size cols 0-5 against this narrowed viewport width.
+        vp_w = self.viewport().width()
 
-        qty_sub = max(45, int(rest * 0.08))
-
-        widths = {
-            0: max(150, int(rest * 0.36)),  # Work Name
-            1: max(70,  int(rest * 0.13)),  # Rate
-            2: qty_sub,                     # Qty › Value
-            3: qty_sub,                     # Qty › Unit
-            4: max(70,  int(rest * 0.15)),  # Source
-            # col 5 (Total) stretches automatically via QHeaderView.Stretch
+        ratios = {
+            0: 0.36,  # Work Name
+            1: 0.13,  # Rate
+            2: 0.08,  # Qty › Value
+            3: 0.08,  # Qty › Unit
+            4: 0.15,  # Source
+            5: 0.20,  # Total
         }
+        mins = {0: 120, 1: 90, 2: 60, 3: 60, 4: 80, 5: 90}
 
-        for col, width in widths.items():
+        col_widths = {c: max(mins[c], int(vp_w * r)) for c, r in ratios.items()}
+
+        used = sum(col_widths.values())
+        if used > vp_w:
+            # Too narrow for proportional layout — scale down to mins, enable scroll
+            scale = vp_w / used
+            col_widths = {
+                c: max(mins[c], int(w * scale)) for c, w in col_widths.items()
+            }
+
+        self.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAsNeeded
+            if sum(col_widths.values()) > vp_w
+            else Qt.ScrollBarAlwaysOff
+        )
+
+        hdr = self.horizontalHeader()
+        hdr.blockSignals(True)
+        for col, width in col_widths.items():
             self.setColumnWidth(col, width)
+        hdr.blockSignals(False)
+        self.resizeRowsToContents()
+
+        self._frozen_col.reposition()
+        self._frozen_col.sync_row_heights()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._frozen_col.reposition()

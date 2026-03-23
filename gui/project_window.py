@@ -84,7 +84,7 @@ SIDEBAR_TREE = {
 
 # ── Sidebar tree ──────────────────────────────────────────────────────────────
 
-_V_PAD    = 2   # vertical padding per side
+_V_PAD    = 1   # vertical padding per side
 _H_PAD    = 10  # left text indent
 _ACCENT_W = 3   # width of the left accent bar in px
 _ICON_SIZE = 16
@@ -138,13 +138,13 @@ class _SidebarDelegate(QStyledItemDelegate):
             depth += 1
             p = p.parent()
 
-        # Font by depth — size stays at FS_BASE; weight carries the hierarchy
+        # Font by depth — size stays at FS_MD; weight carries the hierarchy
         if depth == 0:
-            painter.setFont(_f(FS_BASE, FW_MEDIUM))
+            painter.setFont(_f(FS_MD, FW_MEDIUM))
         elif depth == 1:
-            painter.setFont(_f(FS_BASE, FW_MEDIUM))
+            painter.setFont(_f(FS_MD, FW_MEDIUM))
         else:
-            painter.setFont(_f(FS_SM, FW_NORMAL))
+            painter.setFont(_f(FS_BASE, FW_NORMAL))
 
         # Text colour — PRIMARY on selected, normal otherwise
         text_col = QColor(PRIMARY) if is_sel else option.palette.windowText().color()
@@ -489,7 +489,7 @@ class ProjectWindow(QMainWindow):
         self.sidebar.resizeColumnToContents(0)
         self.sidebar.header().setStretchLastSection(False)
 
-        min_width = int((self.sidebar.header().sectionSize(0) + _H_PAD + _ACCENT_W) * 0.7)
+        min_width = int((self.sidebar.header().sectionSize(0) + _H_PAD + _ACCENT_W) * 0.9)
         self.sidebar.header().setStretchLastSection(True)
         self.sidebar.setMinimumWidth(min_width)
 

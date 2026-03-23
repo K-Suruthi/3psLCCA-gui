@@ -100,6 +100,7 @@ QDoubleSpinBox::down-button {
     background: transparent;
 }
 
+
 /* ── Form controls — combo box ──────────────────────────────────────────── */
 QComboBox {
     background-color: $white;
@@ -131,14 +132,10 @@ QComboBox::drop-down {
     background: transparent;
 }
 
-QComboBox QAbstractItemView {
-    background-color: $white;
-    border: 1px solid $border;
-    border-radius: 6px;
-    padding: 4px;
-    selection-background-color: $surface;
-    selection-color: $body-color;
+QComboBox QAbstractItemView::item {
+    padding: 6px 12px;
 }
+
 
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 QPushButton {
@@ -227,9 +224,6 @@ QTreeWidget {
     border: none;
 }
 
-QTreeView::item {
-    padding: 5px 8px;
-}
 
 QTreeView::branch {
     background: transparent;
@@ -250,8 +244,13 @@ QTableView::item {
     color: $body-color;
 }
 
-QTableView::item:selected {
+QTableView::item:hover {
     background-color: $surface;
+    color: $body-color;
+}
+
+QTableView::item:selected {
+    background-color: $surface-active;
     color: $body-color;
 }
 

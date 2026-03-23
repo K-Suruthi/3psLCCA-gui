@@ -1,6 +1,6 @@
 import sys
 import os
-from PySide6.QtWidgets import QApplication, QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit
+from PySide6.QtWidgets import QApplication, QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit, QProxyStyle, QStyle, QTableView
 from PySide6.QtCore import QObject, QEvent, Qt
 from PySide6.QtGui import QFocusEvent, QMouseEvent, QFontDatabase
 from gui.project_manager import ProjectManager
@@ -58,6 +58,31 @@ def _apply_theme(scheme=None, app: QApplication = None) -> None:
 
 
 
+# ── Combo popup item height ───────────────────────────────────────────────────
+class _ComboItemStyle(QProxyStyle):
+    """Qt ignores QSS min-height on ::item in combo popups on Windows.
+    This proxy enforces it at the style engine level instead."""
+    _MIN_H = 36
+
+    def sizeFromContents(self, ct, opt, sz, widget=None):
+        size = super().sizeFromContents(ct, opt, sz, widget)
+        if ct == QStyle.ContentsType.CT_ItemViewItem and size.height() < self._MIN_H:
+            size.setHeight(self._MIN_H)
+        return size
+
+
+# ── Table row selection ───────────────────────────────────────────────────────
+class _TableRowSelectFilter(QObject):
+    """Apply single-row selection + hover highlight to every QTableView in the app.
+    Uses QEvent.Polish which fires after __init__ completes, so it always wins."""
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Polish and isinstance(obj, QTableView):
+            obj.setSelectionMode(QTableView.SingleSelection)
+            obj.setSelectionBehavior(QTableView.SelectRows)
+            obj.setMouseTracking(True)
+        return super().eventFilter(obj, event)
+
+
 # ── Wheel blocker ─────────────────────────────────────────────────────────────
 class DisableSpinBoxScroll(QObject):
     def eventFilter(self, obj, event):
@@ -105,6 +130,9 @@ def main():
 
     wheel_filter = DisableSpinBoxScroll()
     app.installEventFilter(wheel_filter)
+
+    table_filter = _TableRowSelectFilter()
+    app.installEventFilter(table_filter)
     
     focus_filter = SelectTextOnFocus()
     app.installEventFilter(focus_filter)
@@ -113,7 +141,7 @@ def main():
     app.setOrganizationName("OSBridge")
 
     # Style must be set before palette/QSS — setStyle() resets the palette
-    app.setStyle("Fusion")
+    app.setStyle(_ComboItemStyle("Fusion"))
     # Apply palette + QSS for the current OS colour scheme
     _apply_theme(app=app)
 
