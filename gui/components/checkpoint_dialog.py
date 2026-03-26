@@ -240,7 +240,8 @@ class CheckpointManagerDialog(QDialog):
         if not checkpoints:
             self.table.setRowCount(1)
             empty_item = QTableWidgetItem("No checkpoints found. Create one using '+ New Checkpoint'.")
-            empty_item.setForeground(QColor("#999"))
+            from gui.themes import get_token
+            empty_item.setForeground(QColor(get_token("$icon-muted", "#999999")))
             self.table.setItem(0, 0, empty_item)
             self.table.setSpan(0, 0, 1, 4)
 

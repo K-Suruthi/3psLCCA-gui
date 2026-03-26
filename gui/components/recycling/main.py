@@ -1,3 +1,4 @@
+from gui.themes import get_token
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -106,8 +107,8 @@ class _RecyclingActionDelegate(BaseActionDelegate):
 
     _ICON_CFG = {
         "edit": (None, (46, 204, 113), "Edit"),
-        "exclude": ("#e74c3c", (231, 76, 60), "Exclude from calculation"),
-        "include": ("#2ecc71", (46, 204, 113), "Include in calculation"),
+        "exclude": (get_token("$icon-danger", "#e74c3c"), (231, 76, 60), "Exclude from calculation"),
+        "include": (get_token("$icon-success", "#2ecc71"), (46, 204, 113), "Include in calculation"),
     }
 
     def __init__(self, table, handler):

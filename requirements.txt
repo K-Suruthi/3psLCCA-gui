@@ -5,4 +5,5 @@ matplotlib
 pandas
 numpy
 openpyxl
+PyYAML
 -e ./3psLCCA-core

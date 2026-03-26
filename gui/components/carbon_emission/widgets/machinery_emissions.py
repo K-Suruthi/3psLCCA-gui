@@ -11,6 +11,7 @@ Grand total shown at top and bottom.
 Currency label pulled from general_info chunk.
 """
 
+from gui.themes import get_token
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -228,7 +229,7 @@ class _ActionDelegate(BaseActionDelegate):
         self._detail_table = detail_table
         self._btns = [
             (make_icon("edit"), (46, 204, 113), "edit", "Edit"),
-            (make_icon("trash", color="#e74c3c"), (231, 76, 60), "delete", "Remove row"),
+            (make_icon("trash", color=get_token("$icon-danger", "#e74c3c")), (231, 76, 60), "delete", "Remove row"),
         ]
 
     def _get_btns_for_row(self, row) -> list[tuple]:

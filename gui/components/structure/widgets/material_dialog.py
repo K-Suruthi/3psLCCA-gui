@@ -1064,7 +1064,8 @@ class MaterialDialog(QDialog):
         # ── Button bar ────────────────────────────────────────────────────
         btn_bar = QWidget()
         btn_bar.setObjectName("btn_bar")
-        btn_bar.setStyleSheet("#btn_bar { border-top: 1px solid #ddd; }")
+        from gui.themes import get_token
+        btn_bar.setStyleSheet(f"#btn_bar {{ border-top: 1px solid {get_token('$border', '#dee2e6')}; }}")
         btn_layout = QHBoxLayout(btn_bar)
         btn_layout.setContentsMargins(20, 10, 20, 10)
         btn_layout.setSpacing(8)

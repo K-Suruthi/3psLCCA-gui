@@ -1,6 +1,7 @@
 import math
 import uuid
 import datetime
+from gui.themes import get_token
 
 # ===========================================================================
 # ASSUMPTIONS
@@ -552,7 +553,7 @@ class TransportDialog(QDialog):
         saved_kg: dict,
     ):
         """Insert all 6 cells for one material row."""
-        _grey = QColor("#aaaaaa")
+        _grey = QColor(get_token("$icon-muted", "#aaaaaa"))
         _ro = Qt.ItemIsEnabled  # read-only flag
         name_val = v.get("material_name", "")
 

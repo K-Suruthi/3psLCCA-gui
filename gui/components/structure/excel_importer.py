@@ -65,6 +65,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from gui.themes import get_token
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -143,9 +144,9 @@ SHEET_TO_CHUNK: dict[str, str] = {
 FALLBACK_CHUNK = "str_misc"
 
 
-ERROR_COLOR = QColor("#ffe0e0")
-WARN_COLOR  = QColor("#fff7d6")
-DUP_FG      = QColor("#a0a0a0")   # dimmed text foreground for duplicate-name rows
+ERROR_COLOR = QColor(get_token("$cell-invalid-bg", "#f8d7da"))
+WARN_COLOR  = QColor(get_token("$cell-warn-bg",    "#fff3cd"))
+DUP_FG      = QColor(get_token("$muted",           "#adb5bd"))  # dimmed text foreground for duplicate-name rows
 # No OK_COLOR — default background is left untouched (inherits theme)
 
 _DARK_TEXT = QColor("#1a1a1a")

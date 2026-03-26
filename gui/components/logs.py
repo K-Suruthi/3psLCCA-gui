@@ -84,18 +84,19 @@ class Logs(QWidget):
                 fmt = QTextCharFormat()
 
                 # Colour-code by severity
+                from gui.themes import get_token
                 if "CRITICAL" in entry or "FAULT" in entry or "FAILED" in entry:
-                    fmt.setForeground(QColor("#f48771"))  # red
+                    fmt.setForeground(QColor(get_token("$log-error", "#f48771")))
                 elif "ERROR" in entry or "corrupt" in entry or "loss" in entry:
-                    fmt.setForeground(QColor("#f48771"))  # red
+                    fmt.setForeground(QColor(get_token("$log-error", "#f48771")))
                 elif "WARN" in entry or "stale" in entry or "DENIED" in entry:
-                    fmt.setForeground(QColor("#dcdcaa"))  # yellow
+                    fmt.setForeground(QColor(get_token("$log-warning", "#dcdcaa")))
                 elif "Checkpoint" in entry or "Restored" in entry or "saved" in entry.lower():
-                    fmt.setForeground(QColor("#4ec9b0"))  # teal
+                    fmt.setForeground(QColor(get_token("$log-info", "#4ec9b0")))
                 elif "attached" in entry or "SUCCESS" in entry:
-                    fmt.setForeground(QColor("#b5cea8"))  # green
+                    fmt.setForeground(QColor(get_token("$log-success", "#b5cea8")))
                 else:
-                    fmt.setForeground(QColor("#d4d4d4"))  # default white-grey
+                    fmt.setForeground(QColor(get_token("$log-default", "#d4d4d4")))
 
                 cursor.setCharFormat(fmt)
                 cursor.insertText(entry + "\n")

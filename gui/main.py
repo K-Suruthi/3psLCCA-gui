@@ -42,7 +42,10 @@ def _is_dark(scheme=None) -> bool:
 def _apply_theme(scheme=None, app: QApplication = None) -> None:
     if app is None:
         app = QApplication.instance()
-    is_dark = resolve_is_dark(_is_dark(scheme))
+    raw_dark = _is_dark(scheme)
+    is_dark = resolve_is_dark(raw_dark)
+    from gui.themes import APPEARANCE_MODE
+    print(f"[main] _apply_theme: scheme={scheme}, raw_os_dark={raw_dark}, APPEARANCE_MODE={APPEARANCE_MODE!r}, resolved is_dark={is_dark}")
     track_mode(is_dark)
     palette, tokens = get_dark_theme() if is_dark else get_light_theme()
     app.setPalette(palette)
@@ -113,12 +116,13 @@ def main():
 
     # Show splash immediately so the user sees something while loading
     _px = QPixmap(420, 140)
-    _px.fill(QColor("#1a1a2e"))
+    import gui.themes as _themes
+    _px.fill(QColor(_themes.get_token("$splash-bg", "#1a1a2e")))
     splash = QSplashScreen(_px)
     splash.showMessage(
         "Loading OS Bridge LCCA...",
         Qt.AlignHCenter | Qt.AlignBottom,
-        QColor("#2ecc71"),
+        QColor(_themes.get_token("$splash-progress", "#2ecc71")),
     )
     splash.show()
     app.processEvents()

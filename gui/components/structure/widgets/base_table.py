@@ -1,3 +1,4 @@
+from gui.themes import get_token
 from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
@@ -44,7 +45,7 @@ class _ActionDelegate(BaseActionDelegate):
             self._btns = [
                 (make_icon("edit"), (46, 204, 113), "edit", "Edit"),
                 (
-                    make_icon("trash", color="#e74c3c"),
+                    make_icon("trash", color=get_token("$icon-danger", "#e74c3c")),
                     (231, 76, 60),
                     "trash",
                     "Move to trash",
@@ -54,7 +55,7 @@ class _ActionDelegate(BaseActionDelegate):
             self._btns = [
                 (make_icon("restore"), (46, 204, 113), "restore", "Restore"),
                 (
-                    make_icon("trash", color="#e74c3c"),
+                    make_icon("trash", color=get_token("$icon-danger", "#e74c3c")),
                     (192, 57, 43),
                     "delete",
                     "Permanently delete",

@@ -1,3 +1,4 @@
+from gui.themes import get_token
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -63,11 +64,11 @@ CHUNKS = [
     ("str_misc", "Misc"),
 ]
 
-# Row background states
-BG_INVALID = "#f8d7da"  # red
-BG_SUSPICIOUS = "#fff3cd"  # orange/yellow
-BG_DISABLED = "#e9ecef"  # gray
-TEXT_DARK = "#212529"
+# Row background states — sourced from active theme; fallback keeps original colour
+BG_INVALID    = get_token("$cell-invalid-bg",  "#f8d7da")  # red
+BG_SUSPICIOUS = get_token("$cell-warn-bg",     "#fff3cd")  # orange/yellow
+BG_DISABLED   = get_token("$cell-disabled-bg", "#e9ecef")  # gray
+TEXT_DARK     = get_token("$body-color",        "#212529")
 
 
 # ---------------------------------------------------------------------------
@@ -145,8 +146,8 @@ class _CarbonActionDelegate(BaseActionDelegate):
 
     _ICON_CFG = {
         "edit": (None, (46, 204, 113), "Edit emission factor"),
-        "exclude": ("#e74c3c", (231, 76, 60), "Exclude from calculation"),
-        "include": ("#2ecc71", (46, 204, 113), "Include in calculation"),
+        "exclude": (get_token("$icon-danger", "#e74c3c"), (231, 76, 60), "Exclude from calculation"),
+        "include": (get_token("$icon-success", "#2ecc71"), (46, 204, 113), "Include in calculation"),
     }
 
     def __init__(self, table, handler):

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from gui.themes import get_token
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
@@ -45,9 +46,9 @@ from ..utils.wpi_manager import (
 # ── Integrity badge ───────────────────────────────────────────────────────────
 
 _BADGE = {
-    IntegrityState.OK:       ("✅", "#2e7d32", "Integrity verified"),
-    IntegrityState.MISMATCH: ("⚠",  "#b71c1c", "Hash mismatch — data may be tampered"),
-    IntegrityState.MISSING:  ("❓", "#e65100", "No hash — unverified profile"),
+    IntegrityState.OK:       ("✅", get_token("$integrity-ok",       "#2e7d32"), "Integrity verified"),
+    IntegrityState.MISMATCH: ("⚠",  get_token("$integrity-mismatch", "#b71c1c"), "Hash mismatch — data may be tampered"),
+    IntegrityState.MISSING:  ("❓", get_token("$integrity-missing",  "#e65100"), "No hash — unverified profile"),
 }
 
 
