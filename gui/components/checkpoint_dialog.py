@@ -3,55 +3,64 @@ gui/components/checkpoint_dialog.py
 
 Two dialogs for the checkpoint system:
 
-  SaveCheckpointDialog  — prompts for a label + notes, then calls controller.save_checkpoint()
-  CheckpointManagerDialog — lists all checkpoints with date/label/notes, allows restore or delete
+  SaveCheckpointDialog    — prompts for a label + notes, then saves
+  CheckpointManagerDialog — lists all checkpoints; restore or delete
 """
+
+from datetime import datetime
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QTextEdit, QPushButton,
+    QDialogButtonBox,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QMessageBox, QAbstractItemView, QSizePolicy, QWidget
+    QMessageBox, QAbstractItemView,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QColor
+from PySide6.QtGui import QColor
+
+from gui.theme import (
+    FS_LG, FS_BASE, FS_SM,
+    FW_SEMIBOLD, FW_NORMAL,
+    MUTED,
+    BTN_MD, BTN_SM,
+    SP2, SP3, SP4, SP8, SP10,
+)
+from gui.styles import font as _f
 
 
-# ---------------------------------------------------------------------------
-# Save Checkpoint Dialog
-# ---------------------------------------------------------------------------
+# ── Save Checkpoint Dialog ─────────────────────────────────────────────────────
+
 
 class SaveCheckpointDialog(QDialog):
-    """
-    Modal dialog that lets the user name and annotate a checkpoint before saving.
-    """
+    """Modal dialog — collect label + notes before saving a checkpoint."""
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
         self.setWindowTitle("Save Checkpoint")
-        self.setMinimumWidth(420)
+        self.setFixedWidth(420)
         self.setModal(True)
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+        layout.setContentsMargins(24, 24, 24, 24)
 
         # Header
-        header = QLabel("💾  Save Checkpoint")
-        font = QFont()
-        font.setPointSize(13)
-        font.setBold(True)
-        header.setFont(font)
+        header = QLabel("Save Checkpoint")
+        header.setFont(_f(FS_LG, FW_SEMIBOLD))
         layout.addWidget(header)
 
         desc = QLabel(
-            "A checkpoint is a full snapshot of your current project data.\n"
+            "A checkpoint is a full snapshot of your current project data. "
             "You can restore it at any time from the Checkpoint Manager."
         )
         desc.setWordWrap(True)
-        # desc.setStyleSheet("color: #555; font-size: 11px;")
+        desc.setFont(_f(FS_SM))
+        desc.setEnabled(False)
         layout.addWidget(desc)
+
+        layout.addSpacing(4)
 
         # Form
         form = QFormLayout()
@@ -60,86 +69,69 @@ class SaveCheckpointDialog(QDialog):
         self.label_edit = QLineEdit()
         self.label_edit.setPlaceholderText("e.g. before client review, v2 cost update")
         self.label_edit.setMaxLength(30)
-        form.addRow("Label:", self.label_edit)
+        self.label_edit.setFixedHeight(34)
+        form.addRow("<b>Label</b>", self.label_edit)
 
         self.notes_edit = QTextEdit()
-        self.notes_edit.setPlaceholderText("Optional notes about this snapshot...")
+        self.notes_edit.setPlaceholderText("Optional notes about this snapshot…")
         self.notes_edit.setFixedHeight(80)
-        form.addRow("Notes:", self.notes_edit)
+        form.addRow("<b>Notes</b>", self.notes_edit)
 
         layout.addLayout(form)
+        layout.addSpacing(8)
 
         # Buttons
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
-
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(self.cancel_btn)
-
-        self.save_btn = QPushButton("Save Checkpoint")
-        self.save_btn.setDefault(True)
-        self.save_btn.clicked.connect(self._on_save)
-        # self.save_btn.setStyleSheet(
-        #     "QPushButton { background-color: #4a7c10; color: white; border: none; "
-        #     "border-radius: 5px; padding: 6px 16px; font-weight: bold; }"
-        #     "QPushButton:hover { background-color: #5a9214; }"
-        # )
-        btn_layout.addWidget(self.save_btn)
-
-        layout.addLayout(btn_layout)
+        self._btn_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        self._btn_box.rejected.connect(self.reject)
+        self._save_btn = self._btn_box.button(QDialogButtonBox.Save)
+        self._save_btn.clicked.connect(self._on_save)
+        layout.addWidget(self._btn_box)
 
     def _on_save(self):
         label = self.label_edit.text().strip() or "manual"
         notes = self.notes_edit.toPlainText().strip()
 
-        self.save_btn.setEnabled(False)
-        self.save_btn.setText("Saving...")
+        self._save_btn.setEnabled(False)
+        self._save_btn.setText("Saving…")
 
         zip_name = self.controller.save_checkpoint(label=label, notes=notes)
 
         if zip_name:
             QMessageBox.information(
                 self, "Checkpoint Saved",
-                f"Checkpoint '{label}' saved successfully.\n\nFile: {zip_name}"
+                f"Checkpoint '{label}' saved successfully.\n\nFile: {zip_name}",
             )
             self.accept()
         else:
             QMessageBox.critical(
                 self, "Save Failed",
-                "Failed to create checkpoint. Check the engine logs for details."
+                "Failed to create checkpoint. Check the engine logs for details.",
             )
-            self.save_btn.setEnabled(True)
-            self.save_btn.setText("Save Checkpoint")
+            self._save_btn.setEnabled(True)
+            self._save_btn.setText("Save")
 
 
-# ---------------------------------------------------------------------------
-# Checkpoint Manager Dialog
-# ---------------------------------------------------------------------------
+# ── Checkpoint Manager Dialog ──────────────────────────────────────────────────
+
 
 class CheckpointManagerDialog(QDialog):
-    """
-    Full checkpoint browser: lists all snapshots with metadata,
-    and provides Restore + Delete actions.
-    """
+    """Full checkpoint browser — list, restore, delete."""
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
+        self._checkpoints: list = []
         self.setWindowTitle("Checkpoint Manager")
-        self.setMinimumSize(700, 420)
+        self.setMinimumSize(700, 440)
         self.setModal(True)
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+        layout.setContentsMargins(24, 24, 24, 24)
 
         # Header
-        header = QLabel("🕓  Checkpoint Manager")
-        font = QFont()
-        font.setPointSize(13)
-        font.setBold(True)
-        header.setFont(font)
+        header = QLabel("Checkpoint Manager")
+        header.setFont(_f(FS_LG, FW_SEMIBOLD))
         layout.addWidget(header)
 
         desc = QLabel(
@@ -147,8 +139,11 @@ class CheckpointManagerDialog(QDialog):
             "Restoring will replace all current project data with the snapshot."
         )
         desc.setWordWrap(True)
-        # desc.setStyleSheet("color: #555; font-size: 11px;")
+        desc.setFont(_f(FS_SM))
+        desc.setEnabled(False)
         layout.addWidget(desc)
+
+        layout.addSpacing(4)
 
         # Table
         self.table = QTableWidget()
@@ -166,32 +161,30 @@ class CheckpointManagerDialog(QDialog):
         self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
         layout.addWidget(self.table)
 
-        # Action buttons
+        layout.addSpacing(4)
+
+        # Action row — New on left, Delete + Restore on right
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
 
         self.new_btn = QPushButton("+ New Checkpoint")
+        self.new_btn.setFixedHeight(BTN_SM)
         self.new_btn.clicked.connect(self._on_new_checkpoint)
         btn_row.addWidget(self.new_btn)
 
         btn_row.addStretch()
 
-        self.delete_btn = QPushButton("🗑  Delete")
+        self.delete_btn = QPushButton("Delete")
+        self.delete_btn.setFixedHeight(BTN_SM)
         self.delete_btn.setEnabled(False)
         self.delete_btn.clicked.connect(self._on_delete)
-        self.delete_btn.setStyleSheet(
-            "QPushButton:enabled { color: #c0392b; border-color: #c0392b; }"
-            "QPushButton:enabled:hover { background-color: #c0392b; color: white; }"
-        )
         btn_row.addWidget(self.delete_btn)
 
-        self.restore_btn = QPushButton("↩  Restore")
+        self.restore_btn = QPushButton("Restore")
+        self.restore_btn.setFixedHeight(BTN_SM)
         self.restore_btn.setEnabled(False)
+        self.restore_btn.setDefault(True)
         self.restore_btn.clicked.connect(self._on_restore)
-        # self.restore_btn.setStyleSheet(
-        #     "QPushButton:enabled { background-color: #4a7c10; color: white; border: none; "
-        #     "border-radius: 5px; padding: 6px 16px; font-weight: bold; }"
-        #     "QPushButton:enabled:hover { background-color: #5a9214; }"
-        # )
         btn_row.addWidget(self.restore_btn)
 
         layout.addLayout(btn_row)
@@ -199,18 +192,13 @@ class CheckpointManagerDialog(QDialog):
         self._populate_table()
 
     def _populate_table(self):
-        """Loads checkpoints from the controller and fills the table."""
         checkpoints = self.controller.list_checkpoints()
-
+        self._checkpoints = checkpoints
         self.table.setRowCount(len(checkpoints))
-        self._checkpoints = checkpoints  # store for action reference
 
         for row, cp in enumerate(checkpoints):
-            # Format date nicely
             raw_date = cp.get("date", "")
             try:
-                from datetime import datetime
-                # Timestamp is stored as YYYYmmdd_HHMMSS_mmm — strip milliseconds
                 ts = raw_date.rsplit("_", 1)[0] if raw_date.count("_") == 2 else raw_date
                 dt = datetime.strptime(ts, "%Y%m%d_%H%M%S")
                 formatted_date = dt.strftime("%d %b %Y, %I:%M %p")
@@ -220,7 +208,7 @@ class CheckpointManagerDialog(QDialog):
             _ro = Qt.ItemIsEnabled | Qt.ItemIsSelectable
 
             label_item = QTableWidgetItem(cp.get("label", ""))
-            label_item.setFont(QFont("", -1, QFont.Bold))
+            label_item.setFont(_f(FS_BASE, FW_SEMIBOLD))
             label_item.setFlags(_ro)
 
             date_item = QTableWidgetItem(formatted_date)
@@ -230,6 +218,7 @@ class CheckpointManagerDialog(QDialog):
             notes_item.setFlags(_ro)
 
             file_item = QTableWidgetItem(cp.get("filename", ""))
+            file_item.setFont(_f(FS_SM))
             file_item.setFlags(_ro)
 
             self.table.setItem(row, 0, label_item)
@@ -239,16 +228,18 @@ class CheckpointManagerDialog(QDialog):
 
         if not checkpoints:
             self.table.setRowCount(1)
-            empty_item = QTableWidgetItem("No checkpoints found. Create one using '+ New Checkpoint'.")
-            from gui.themes import get_token
-            empty_item.setForeground(QColor(get_token("$icon-muted", "#999999")))
+            empty_item = QTableWidgetItem(
+                "No checkpoints yet. Use '+ New Checkpoint' to create one."
+            )
+            empty_item.setForeground(QColor(MUTED))
+            empty_item.setFlags(Qt.ItemIsEnabled)
             self.table.setItem(0, 0, empty_item)
             self.table.setSpan(0, 0, 1, 4)
 
     def _on_selection_changed(self):
-        has_selection = bool(self.table.selectedItems()) and bool(self._checkpoints)
-        self.restore_btn.setEnabled(has_selection)
-        self.delete_btn.setEnabled(has_selection)
+        has = bool(self.table.selectedItems()) and bool(self._checkpoints)
+        self.restore_btn.setEnabled(has)
+        self.delete_btn.setEnabled(has)
 
     def _selected_checkpoint(self):
         row = self.table.currentRow()
@@ -265,48 +256,44 @@ class CheckpointManagerDialog(QDialog):
         cp = self._selected_checkpoint()
         if not cp:
             return
-
         result = QMessageBox.warning(
-            self,
-            "Confirm Restore",
+            self, "Confirm Restore",
             f"Restore checkpoint '{cp['label']}' from {cp['date']}?\n\n"
-            "⚠️  This will REPLACE all current project data with this snapshot.\n"
+            "This will replace all current project data with this snapshot.\n"
             "Any unsaved changes will be lost.",
             QMessageBox.Ok | QMessageBox.Cancel,
-            QMessageBox.Cancel
+            QMessageBox.Cancel,
         )
-
         if result == QMessageBox.Ok:
             success = self.controller.load_checkpoint(cp["filename"])
             if success:
                 QMessageBox.information(
                     self, "Restore Complete",
                     f"Project restored from '{cp['label']}' successfully.\n"
-                    "The UI will now refresh."
+                    "The UI will now refresh.",
                 )
                 self.accept()
             else:
                 QMessageBox.critical(
                     self, "Restore Failed",
-                    "Failed to restore the checkpoint. Check the engine logs for details."
+                    "Failed to restore the checkpoint. Check the engine logs for details.",
                 )
 
     def _on_delete(self):
         cp = self._selected_checkpoint()
         if not cp:
             return
-
         result = QMessageBox.warning(
-            self,
-            "Confirm Delete",
+            self, "Confirm Delete",
             f"Permanently delete checkpoint '{cp['label']}'?\n\nThis cannot be undone.",
             QMessageBox.Ok | QMessageBox.Cancel,
-            QMessageBox.Cancel
+            QMessageBox.Cancel,
         )
-
         if result == QMessageBox.Ok:
             success = self.controller.delete_checkpoint(cp["filename"])
             if success:
                 self._populate_table()
             else:
-                QMessageBox.critical(self, "Delete Failed", "Could not delete the checkpoint file.")
+                QMessageBox.critical(
+                    self, "Delete Failed", "Could not delete the checkpoint file.",
+                )
