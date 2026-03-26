@@ -98,7 +98,7 @@ class SelectTextOnFocus(QObject):
     watching = None
     def eventFilter(self, obj, event):
         if event.type() == QEvent.MouseButtonRelease and isinstance(obj, QLineEdit):
-            if self.watching != obj:
+            if self.watching != obj and obj.isEnabled():
                 self.watching = obj
                 obj.selectAll()
         return super().eventFilter(obj, event)
@@ -157,7 +157,7 @@ def main():
     # Style must be set before palette/QSS — setStyle() resets the palette
     app.setStyle(_ComboItemStyle("Fusion"))
     # Apply palette + QSS for the current OS colour scheme
-    _apply_theme(app=app)
+    _apply_theme(app.styleHints().colorScheme(), app)
 
     # Re-apply when the OS switches dark ↔ light at runtime (Qt 6.5+)
     try:

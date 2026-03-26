@@ -598,3 +598,6 @@ QToolTip {
     background-color: $white;
     border-bottom: 1px solid $border;
 }
+#top_bar QPushButton {
+    padding: 3px 10px;
+}

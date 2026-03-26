@@ -348,7 +348,7 @@ class TransportDialog(QDialog):
             "Rows with no quantity or no kg conversion are skipped."
         )
         self.select_all_btn.clicked.connect(self._select_all_valid)
-        search_row.addWidget(self.select_all_btn)
+        search_row.addWidget(self.select_all_btn, alignment=Qt.AlignmentFlag.AlignTop)
         ll.addLayout(search_row)
 
         self.mat_table = _TransportTable()

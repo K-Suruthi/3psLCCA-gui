@@ -824,7 +824,7 @@ class HomePage(QWidget):
             btn.setStyleSheet(btn_ghost_checkable(radius=RADIUS_MD))
             btn.clicked.connect(self._on_sort_btn)
             btn.setChecked(key == saved_sort)
-            tl.addWidget(btn)
+            tl.addWidget(btn, alignment=Qt.AlignCenter)
             tl.addSpacing(SP2)
             self._sort_btns.append(btn)
 
@@ -879,16 +879,23 @@ class HomePage(QWidget):
     def _update_greeting(self):
         profile = sm.get_profile()
         name = profile.get("display_name", "").strip()
+        
+        # Fallback to system username if no name provided
+        if not name:
+            # Get system username (fallback to 'User')
+            try:
+                name = getpass.getuser()
+            except Exception:
+                name = "User"
+
+            # Clean formatting
+            name = name.strip().title() if name else "User"
+
         greet = _greeting()
-        if name:
-            self.greeting_lbl.setText(
-                f"<span style='font-size:{FS_MD}pt; font-weight:{FW_LIGHT};'>{greet},&nbsp;</span>"
-                f"<span style='font-size:{FS_DISP}pt; font-weight:{FW_BOLD}; color:{PRIMARY};'>{name}!</span>"
-            )
-        else:
-            self.greeting_lbl.setText(
-                f"<span style='font-size:{FS_DISP}pt; font-weight:{FW_BOLD};'>{greet}!</span>"
-            )
+        self.greeting_lbl.setText(
+            f"<span style='font-size:{FS_MD}pt; font-weight:{FW_LIGHT};'>{greet},&nbsp;</span>"
+            f"<span style='font-size:{FS_DISP}pt; font-weight:{FW_BOLD}; color:{PRIMARY};'>{name}!</span>"
+        )
 
     def _current_sort(self) -> str:
         for btn in self._sort_btns:

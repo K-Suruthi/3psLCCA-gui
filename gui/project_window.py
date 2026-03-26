@@ -426,7 +426,7 @@ class ProjectWindow(QMainWindow):
         self.menubar.addMenu(self.menuHelp)
         self.menubar.addAction(self.log_action)
 
-        top_bar_layout.addWidget(self.menubar)
+        top_bar_layout.addWidget(self.menubar, alignment=Qt.AlignmentFlag.AlignCenter)
         top_bar_layout.addStretch()
         self.save_status_bar = SaveStatusBar(controller=self.controller)
         top_bar_layout.addWidget(self.save_status_bar)
