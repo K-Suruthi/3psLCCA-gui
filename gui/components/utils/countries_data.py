@@ -1663,3 +1663,7 @@ CURRENCIES = sorted(
 
 # FOLDER_NAME → full entry  (e.g. FOLDER_MAP["UNITED_STATES"]["COUNTRY"] == "UNITED STATES")
 FOLDER_MAP = {item["FOLDER_NAME"]: item for item in data}
+
+
+# Add this new mapping: COUNTRY -> CURRENCY_CODE
+COUNTRY_TO_CURRENCY = {item["COUNTRY"]: item["CURRENCY_CODE"] for item in data}

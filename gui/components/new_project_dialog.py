@@ -17,7 +17,8 @@ def _set_combo_error(widget: QComboBox, error: bool):
     widget.style().unpolish(widget)
     widget.style().polish(widget)
 
-from .utils.countries_data import CURRENCIES, COUNTRIES
+# 1. UPDATED IMPORT: Added COUNTRY_TO_CURRENCY
+from .utils.countries_data import CURRENCIES, COUNTRIES, COUNTRY_TO_CURRENCY
 
 
 _UNIT_SYSTEMS = [
@@ -77,6 +78,10 @@ class NewProjectDialog(QDialog):
         self.country_input.currentIndexChanged.connect(
             lambda: self.country_input.setStyleSheet("") if self.country_input.currentData() else None
         )
+        
+        # 2. ADDED SIGNAL CONNECTION: Trigger auto-fill when country changes
+        self.country_input.currentTextChanged.connect(self._auto_fill_currency)
+        
         layout.addWidget(self.country_input)
 
         country_hint = QLabel("Cannot be changed after project creation.")
@@ -183,3 +188,15 @@ class NewProjectDialog(QDialog):
 
     def get_unit_system(self) -> str:
         return self.unit_system_input.currentData() or "metric"
+
+    # 3. ADDED METHOD: Handle the actual auto-fill logic
+    def _auto_fill_currency(self, selected_country: str):
+        """Auto-fills the currency combo box based on the country selection."""
+        if selected_country in COUNTRY_TO_CURRENCY:
+            target_currency = COUNTRY_TO_CURRENCY[selected_country]
+            
+            idx = self.currency_input.findText(target_currency)
+            if idx >= 0:
+                self.currency_input.setCurrentIndex(idx)
+        else:
+            self.currency_input.setCurrentIndex(0)
