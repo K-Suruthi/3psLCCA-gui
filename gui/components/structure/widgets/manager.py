@@ -129,7 +129,9 @@ class StructureManagerWidget(QWidget):
             for item in items:
                 if not item.get("state", {}).get("in_trash", False):
                     v = item.get("values", {})
-                    total += float(v.get("quantity", 0) or 0) * float(v.get("rate", 0) or 0)
+                    total += float(v.get("quantity", 0) or 0) * float(
+                        v.get("rate", 0) or 0
+                    )
                     count += 1
         currency = getattr(self, "_currency", "")
         suffix = f" ({currency})" if currency else ""
@@ -155,17 +157,19 @@ class StructureManagerWidget(QWidget):
     def add_material(self, comp_name, values_dict, is_trash=False):
         now = datetime.datetime.now().isoformat()
 
-        included_carbon    = values_dict.pop("_included_in_carbon_emission", True)
+        included_carbon = values_dict.pop("_included_in_carbon_emission", True)
         included_recycling = values_dict.pop("_included_in_recyclability", True)
         allow_edit_checked = values_dict.pop("_allow_edit_checked", False)
-        from_sor           = values_dict.pop("_from_sor", False)
-        sor_db_key         = values_dict.pop("_sor_db_key", "")
-        is_excel           = values_dict.pop("_is_excel_import", False)
-        db_original        = values_dict.pop("_db_original", {})
-        modified_fields    = values_dict.pop("_modified_fields", [])
-        # Legacy flag — kept for backward compat; derived from modified_fields when available
-        is_modified        = bool(modified_fields) or values_dict.pop("_is_modified_by_user", False)
+        from_sor = values_dict.pop("_from_sor", False)
+        sor_db_key = values_dict.pop("_sor_db_key", "")
+        is_excel = values_dict.pop("_is_excel_import", False)
+        db_snapshot = values_dict.pop("_db_snapshot", {})
         values_dict.pop("_is_customized", None)
+        # `id` may come from an Excel CID#ID column — store it as a reference, not a value field
+        _excel_ref_id = values_dict.pop("id", None)
+        if _excel_ref_id and "sor_ref_id" not in db_snapshot:
+            db_snapshot = dict(db_snapshot)
+            db_snapshot["sor_ref_id"] = str(_excel_ref_id)
 
         # Compute source + source_db_key
         if is_excel:
@@ -174,10 +178,7 @@ class StructureManagerWidget(QWidget):
         elif from_sor:
             is_custom = sor_db_key.startswith("custom::")
             clean_key = sor_db_key.removeprefix("custom::")
-            if is_custom:
-                source = "custom_db_modified" if is_modified else "custom_db"
-            else:
-                source = "db_modified" if is_modified else "db"
+            source = "custom_db" if is_custom else "db"
             source_db_key = clean_key
         else:
             source = "manual"
@@ -191,8 +192,7 @@ class StructureManagerWidget(QWidget):
                 "modified_on": now,
                 "source": source,
                 "source_db_key": source_db_key,
-                "db_original": db_original,
-                "modified_fields": modified_fields,
+                "db_snapshot": db_snapshot,
             },
             "state": {
                 "in_trash": is_trash,
@@ -215,13 +215,18 @@ class StructureManagerWidget(QWidget):
 
     def _get_project_country(self) -> str:
         try:
-            return self.controller.get_chunk("general_info").get("project_country", "") or ""
+            return (
+                self.controller.get_chunk("general_info").get("project_country", "")
+                or ""
+            )
         except Exception:
             return ""
 
     def _get_project_sor_db(self) -> str:
         try:
-            return self.controller.get_chunk("general_info").get("sor_database", "") or ""
+            return (
+                self.controller.get_chunk("general_info").get("sor_database", "") or ""
+            )
         except Exception:
             return ""
 
@@ -235,16 +240,21 @@ class StructureManagerWidget(QWidget):
         }
 
     def open_dialog(self, comp_name):
-        dialog = MaterialDialog(comp_name, self, country=self._get_project_country(),
-                                sor_db_key=self._get_project_sor_db())
+        dialog = MaterialDialog(
+            comp_name,
+            self,
+            country=self._get_project_country(),
+            sor_db_key=self._get_project_sor_db(),
+        )
         if dialog.exec():
             values = dialog.get_values()
             name = values.get("material_name", "").strip()
             if name.lower() in self._existing_names(comp_name):
                 QMessageBox.warning(
-                    self, "Duplicate Name",
-                    f"A material named \"{name}\" already exists in \"{comp_name}\".\n"
-                    "Please use a different name."
+                    self,
+                    "Duplicate Name",
+                    f'A material named "{name}" already exists in "{comp_name}".\n'
+                    "Please use a different name.",
                 )
                 return
             self.add_material(comp_name, values)
@@ -264,41 +274,42 @@ class StructureManagerWidget(QWidget):
                 original_idx = active_indices[table_row_index]
                 item_to_edit = items[original_idx]
 
-                dialog = MaterialDialog(comp_name, self, data=item_to_edit,
-                                        country=self._get_project_country(),
-                                        sor_db_key=self._get_project_sor_db())
+                dialog = MaterialDialog(
+                    comp_name,
+                    self,
+                    data=item_to_edit,
+                    country=self._get_project_country(),
+                    sor_db_key=self._get_project_sor_db(),
+                )
                 if dialog.exec():
                     new_values = dialog.get_values()
 
-                    included_carbon    = new_values.pop("_included_in_carbon_emission", True)
-                    included_recycling = new_values.pop("_included_in_recyclability", True)
+                    included_carbon = new_values.pop(
+                        "_included_in_carbon_emission", True
+                    )
+                    included_recycling = new_values.pop(
+                        "_included_in_recyclability", True
+                    )
                     allow_edit_checked = new_values.pop("_allow_edit_checked", False)
                     new_values.pop("_from_sor", None)
                     new_values.pop("_sor_db_key", None)
                     new_values.pop("_is_customized", None)
                     new_values.pop("_is_excel_import", None)
-                    new_db_original    = new_values.pop("_db_original", None)
-                    new_modified_fields = new_values.pop("_modified_fields", [])
-                    # Legacy flag fallback
-                    new_is_modified    = bool(new_modified_fields) or new_values.pop("_is_modified_by_user", False)
-
-                    # Upgrade source if user edited a DB-sourced material
-                    current_source = item_to_edit["meta"].get("source", "manual")
-                    if new_is_modified:
-                        if current_source == "db":
-                            current_source = "db_modified"
-                        elif current_source == "custom_db":
-                            current_source = "custom_db_modified"
+                    new_db_snapshot = new_values.pop("_db_snapshot", None)
 
                     item_to_edit["values"] = new_values
-                    item_to_edit["meta"]["modified_on"] = datetime.datetime.now().isoformat()
-                    item_to_edit["meta"]["source"] = current_source
-                    item_to_edit["meta"]["modified_fields"] = new_modified_fields
-                    # Preserve original DB snapshot — only write if not already stored
-                    if new_db_original and not item_to_edit["meta"].get("db_original"):
-                        item_to_edit["meta"]["db_original"] = new_db_original
-                    item_to_edit["state"]["included_in_carbon_emission"] = included_carbon
-                    item_to_edit["state"]["included_in_recyclability"] = included_recycling
+                    item_to_edit["meta"][
+                        "modified_on"
+                    ] = datetime.datetime.now().isoformat()
+                    # Always overwrite snapshot — dialog rebuilds it fresh on each suggestion
+                    if new_db_snapshot is not None:
+                        item_to_edit["meta"]["db_snapshot"] = new_db_snapshot
+                    item_to_edit["state"][
+                        "included_in_carbon_emission"
+                    ] = included_carbon
+                    item_to_edit["state"][
+                        "included_in_recyclability"
+                    ] = included_recycling
                     item_to_edit["state"]["allow_edit_checked"] = allow_edit_checked
 
                     self.controller.engine.stage_update(

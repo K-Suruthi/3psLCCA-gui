@@ -66,6 +66,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from gui.themes import get_token
+from .widgets.material_dialog import build_excel_snapshot
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -145,8 +146,10 @@ FALLBACK_CHUNK = "str_misc"
 
 
 ERROR_COLOR = QColor(get_token("$cell-invalid-bg", "#f8d7da"))
-WARN_COLOR  = QColor(get_token("$cell-warn-bg",    "#fff3cd"))
-DUP_FG      = QColor(get_token("$muted",           "#adb5bd"))  # dimmed text foreground for duplicate-name rows
+WARN_COLOR = QColor(get_token("$cell-warn-bg", "#fff3cd"))
+DUP_FG = QColor(
+    get_token("$muted", "#adb5bd")
+)  # dimmed text foreground for duplicate-name rows
 # No OK_COLOR — default background is left untouched (inherits theme)
 
 _DARK_TEXT = QColor("#1a1a1a")
@@ -178,7 +181,7 @@ def _parse_cid_header(raw: str) -> str | None:
     stripped = str(raw).strip().lower()
     if not stripped.startswith(CID_PREFIX):
         return None
-    field_part = stripped[len(CID_PREFIX):]
+    field_part = stripped[len(CID_PREFIX) :]
     return CID_TO_INTERNAL.get(field_part)
 
 
@@ -378,7 +381,10 @@ def verify_schema(parsed: dict[str, list[dict]]) -> dict[str, list[dict]]:
             unit = record.get("unit", "").strip()
             if unit:
                 try:
-                    from ..utils.unit_resolver import get_unit_info as _gui, get_known_units as _gku
+                    from ..utils.unit_resolver import (
+                        get_unit_info as _gui,
+                        get_known_units as _gku,
+                    )
 
                     _si, _ = _gui(unit)
                     if _si is None:
@@ -390,6 +396,7 @@ def verify_schema(parsed: dict[str, list[dict]]) -> dict[str, list[dict]]:
                     # unit_resolver not available (standalone mode) — derive from definitions
                     try:
                         from ..utils.unit_resolver import get_known_units as _gku
+
                         _known = _gku()
                     except Exception:
                         _known = set()
@@ -496,6 +503,7 @@ def record_to_material_dict(record: dict) -> dict:
 
     return {
         # ── Core ──────────────────────────────────────────────────────────
+        "id": record.get("id", "").strip(),  # Added: Required for OsBridgeLCCA
         "material_name": record.get("name", "").strip(),
         "quantity": _float("quantity"),
         "unit": raw_unit,
@@ -512,13 +520,16 @@ def record_to_material_dict(record: dict) -> dict:
         "scrap_rate": scrap,
         "post_demolition_recovery_percentage": recovery,
         "is_recyclable": has_recycle,
-        # ── State flags (consumed by add_material, not stored in values) ──
+        # ── Metadata Tags ─────────────────────────────────────────────────
+        "_action": "excel",  # Added: Standardizes source tracking
+        "_db_original": build_excel_snapshot(
+            record
+        ),  # Added: For modification detection
+        # ── Existing State flags ──────────────────────────────────────────
         "_included_in_carbon_emission": has_carbon,
         "_included_in_recyclability": has_recycle,
         "_is_excel_import": True,
-        # User explicitly selected a duplicate-name row → skip the duplicate check
         "_force_overwrite": bool(record.get("_duplicate_name", False)),
-        # ── Routing (popped in _collect before calling add_material) ──────
         "_component": record.get("component", "").strip(),
         "_chunk_key": record.get("_chunk_key", FALLBACK_CHUNK),
     }
@@ -556,7 +567,7 @@ def _validate_for_engine(
 
     CLEANUP (handled by add_material itself):
       add_material pops all private keys: _included_in_carbon_emission,
-      _included_in_recyclability, _is_modified_by_user, _from_sor,
+      _included_in_recyclability, _db_snapshot, _from_sor,
       _sor_db_key, _is_customized, _is_excel_import.
     """
     reasons: list[str] = []
@@ -672,7 +683,10 @@ _CB_COL = 0
 _DATA_START = 1
 
 # Issues column index — +1 because col 0 is the checkbox
-_ISSUES_COL = next(i for i, (f, _, _n) in enumerate(IMPORT_COLUMNS) if f == "_issues") + _DATA_START
+_ISSUES_COL = (
+    next(i for i, (f, _, _n) in enumerate(IMPORT_COLUMNS) if f == "_issues")
+    + _DATA_START
+)
 
 
 # ---------------------------------------------------------------------------
@@ -804,8 +818,14 @@ class ImportComponentTable(QTableWidget):
 
         # Full detail shown as tooltip on hover
         all_issues = errs + warns
-        dup_note = "Name already exists in this component — unchecked by default. Check to force-import." if is_dup else ""
-        tooltip_parts = (["\n".join(f"• {m}" for m in all_issues)] if all_issues else []) + ([dup_note] if dup_note else [])
+        dup_note = (
+            "Name already exists in this component — unchecked by default. Check to force-import."
+            if is_dup
+            else ""
+        )
+        tooltip_parts = (
+            ["\n".join(f"• {m}" for m in all_issues)] if all_issues else []
+        ) + ([dup_note] if dup_note else [])
         tooltip = "\n".join(tooltip_parts)
 
         # Col 0 — selection checkbox
@@ -818,7 +838,7 @@ class ImportComponentTable(QTableWidget):
             cb_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             # Duplicate rows default to unchecked; all others default to checked
             cb_item.setCheckState(Qt.Unchecked if is_dup else Qt.Checked)
-        cb_item.setData(Qt.UserRole + 1, rows_idx)      # rows index stored here
+        cb_item.setData(Qt.UserRole + 1, rows_idx)  # rows index stored here
         self.setItem(row, _CB_COL, cb_item)
 
         # Data cols (shifted by _DATA_START)
@@ -958,14 +978,17 @@ class ImportComponentTable(QTableWidget):
     def selectable_count(self) -> int:
         """Rows that can be checked (no errors)."""
         return sum(
-            1 for row in range(self.rowCount())
-            if self.item(row, _CB_COL) and (self.item(row, _CB_COL).flags() & Qt.ItemIsUserCheckable)
+            1
+            for row in range(self.rowCount())
+            if self.item(row, _CB_COL)
+            and (self.item(row, _CB_COL).flags() & Qt.ItemIsUserCheckable)
         )
 
     def selected_count(self) -> int:
         """Rows currently checked."""
         return sum(
-            1 for row in range(self.rowCount())
+            1
+            for row in range(self.rowCount())
             if self.item(row, _CB_COL)
             and self.item(row, _CB_COL).checkState() == Qt.Checked
         )
@@ -1014,7 +1037,9 @@ class ComponentBlock(QGroupBox):
 
     selection_changed = Signal()
 
-    def __init__(self, comp_name: str, comp_rows: list[dict], is_uncat: bool = False, parent=None):
+    def __init__(
+        self, comp_name: str, comp_rows: list[dict], is_uncat: bool = False, parent=None
+    ):
         super().__init__(comp_name, parent)
         self.setStyleSheet(
             "QGroupBox { font-weight: bold; font-size: 12px; color: #888; }"
@@ -1033,7 +1058,7 @@ class ComponentBlock(QGroupBox):
         hl.setSpacing(6)
 
         self._chk = QCheckBox("Select all")
-        self._chk.setTristate(True)       # tristate for visual only; click logic below
+        self._chk.setTristate(True)  # tristate for visual only; click logic below
         self._chk.setStyleSheet("font-weight: normal; font-size: 11px;")
         hl.addWidget(self._chk)
 
@@ -1050,7 +1075,9 @@ class ComponentBlock(QGroupBox):
         bl.addWidget(self._tbl)
 
         # ── Empty placeholder (shown when filter hides everything) ────────
-        self._empty_lbl = QLabel("All rows hidden by filter (missing/zero Name, Qty, Rate, or Unit).")
+        self._empty_lbl = QLabel(
+            "All rows hidden by filter (missing/zero Name, Qty, Rate, or Unit)."
+        )
         self._empty_lbl.setStyleSheet("color: #888; font-style: italic; padding: 4px;")
         self._empty_lbl.setVisible(False)
         bl.addWidget(self._empty_lbl)
@@ -1406,7 +1433,9 @@ class ImportPreviewWindow(QDialog):
         # Global select-all checkbox
         self._select_all_chk = QCheckBox("Select all")
         self._select_all_chk.setTristate(True)
-        self._select_all_chk.setToolTip("Check / uncheck every selectable row across all sheets")
+        self._select_all_chk.setToolTip(
+            "Check / uncheck every selectable row across all sheets"
+        )
         self._select_all_chk.clicked.connect(self._on_select_all_clicked)
         top_bar.addWidget(self._select_all_chk)
 
@@ -1430,13 +1459,14 @@ class ImportPreviewWindow(QDialog):
         _chunk_cache: dict[str, dict] = {}
         _engine = (
             getattr(getattr(manager, "controller", None), "engine", None)
-            if manager else None
+            if manager
+            else None
         )
         if _engine:
             for _rows in parsed.values():
                 for rec in _rows:
                     if rec.get("_errors"):
-                        continue                        # already invalid — skip
+                        continue  # already invalid — skip
                     _chunk_key = rec.get("_chunk_key", FALLBACK_CHUNK)
                     _comp = rec.get("component", "").strip()
                     _name = rec.get("name", "").strip().lower()
@@ -1444,7 +1474,9 @@ class ImportPreviewWindow(QDialog):
                         continue
                     if _chunk_key not in _chunk_cache:
                         try:
-                            _chunk_cache[_chunk_key] = _engine.fetch_chunk(_chunk_key) or {}
+                            _chunk_cache[_chunk_key] = (
+                                _engine.fetch_chunk(_chunk_key) or {}
+                            )
                         except Exception:
                             _chunk_cache[_chunk_key] = {}
                     _taken = {
@@ -1539,9 +1571,7 @@ class ImportPreviewWindow(QDialog):
 
         # Update import button label
         if hasattr(self, "_import_valid_btn"):
-            self._import_valid_btn.setText(
-                f"Import {sel} Row{'s' if sel != 1 else ''}"
-            )
+            self._import_valid_btn.setText(f"Import {sel} Row{'s' if sel != 1 else ''}")
 
         # Update top-level select-all checkbox
         if hasattr(self, "_select_all_chk"):
@@ -1619,8 +1649,9 @@ class ImportPreviewWindow(QDialog):
         total = sum(len(rows) for comp in data.values() for rows in comp.values())
         if total == 0:
             QMessageBox.warning(
-                self, "Nothing to Import",
-                "No rows selected for import, or all selected rows have errors."
+                self,
+                "Nothing to Import",
+                "No rows selected for import, or all selected rows have errors.",
             )
             return
         imported, skipped, failures = _emit_result(data, self._manager)
@@ -1649,12 +1680,12 @@ class ImportPreviewWindow(QDialog):
         layout.setSpacing(10)
 
         summary = QLabel(
-            f"<b>{imported}</b> row(s) imported.  "
-            f"<b>{skipped}</b> row(s) skipped:"
+            f"<b>{imported}</b> row(s) imported.  " f"<b>{skipped}</b> row(s) skipped:"
         )
         layout.addWidget(summary)
 
         from PySide6.QtWidgets import QPlainTextEdit
+
         txt = QPlainTextEdit()
         txt.setReadOnly(True)
         txt.setPlainText(full_text)
@@ -1759,7 +1790,10 @@ def _emit_result(
                     # --- Pre-write validation --------------------------------
                     force_overwrite = bool(values_dict.pop("_force_overwrite", False))
                     reasons = _validate_for_engine(
-                        values_dict, comp_name, chunk_key, manager,
+                        values_dict,
+                        comp_name,
+                        chunk_key,
+                        manager,
                         force_overwrite=force_overwrite,
                     )
                     if reasons:
@@ -1774,36 +1808,74 @@ def _emit_result(
                     if force_overwrite:
                         # Update the existing entry in-place (overwrite)
                         import datetime as _dt
+                        from .material_dialog import build_excel_snapshot
 
-                        included_carbon  = values_dict.pop("_included_in_carbon_emission", True)
-                        included_recycle = values_dict.pop("_included_in_recyclability", True)
+                        included_carbon = values_dict.pop(
+                            "_included_in_carbon_emission", True
+                        )
+                        included_recycle = values_dict.pop(
+                            "_included_in_recyclability", True
+                        )
+
                         # Pop remaining private keys that add_material normally handles
-                        for _k in ("_from_sor", "_sor_db_key", "_is_modified_by_user",
-                                   "_is_excel_import", "_is_customized",
-                                   "_db_original", "_modified_fields",
-                                   "_allow_edit_checked"):
+                        for _k in (
+                            "_from_sor",
+                            "_sor_db_key",
+                            "_db_snapshot",
+                            "_is_excel_import",
+                            "_is_customized",
+                            "_allow_edit_checked",
+                        ):
                             values_dict.pop(_k, None)
+
+                        # Preserve ID for GUI visibility
+                        _ref_id = values_dict.get("id")
 
                         _engine = manager.controller.engine
                         _chunk_data = _engine.fetch_chunk(chunk_key) or {}
                         _items = _chunk_data.get(comp_name, [])
                         _name_lower = mat_name.strip().lower()
                         _found = False
+
                         for _item in _items:
-                            _ev = _item.get("values", {}).get("material_name", "").strip().lower()
-                            if _ev == _name_lower and not _item.get("state", {}).get("in_trash", False):
+                            _ev = (
+                                _item.get("values", {})
+                                .get("material_name", "")
+                                .strip()
+                                .lower()
+                            )
+                            if _ev == _name_lower and not _item.get("state", {}).get(
+                                "in_trash", False
+                            ):
+                                # 1. Sync values (keeping the ID visible)
                                 _item["values"] = dict(values_dict)
-                                _item["meta"]["modified_on"] = _dt.datetime.now().isoformat()
-                                _item["meta"]["source"] = "excel"
-                                _item["state"]["included_in_carbon_emission"] = included_carbon
-                                _item["state"]["included_in_recyclability"] = included_recycle
+
+                                # 2. Update Metadata to match 4-tier action system
+                                _item["meta"][
+                                    "modified_on"
+                                ] = _dt.datetime.now().isoformat()
+                                _item["meta"]["action"] = "excel"
+                                _item["meta"]["db_original"] = build_excel_snapshot(
+                                    values_dict
+                                )
+
+                                # 3. Sync state flags
+                                _item["state"][
+                                    "included_in_carbon_emission"
+                                ] = included_carbon
+                                _item["state"][
+                                    "included_in_recyclability"
+                                ] = included_recycle
                                 _found = True
                                 break
+
                         if _found:
                             _engine.stage_update(chunk_name=chunk_key, data=_chunk_data)
                         else:
-                            # Item was deleted between preview and import — add fresh
-                            values_dict["_included_in_carbon_emission"] = included_carbon
+                            # Fallback if item was deleted
+                            values_dict["_included_in_carbon_emission"] = (
+                                included_carbon
+                            )
                             values_dict["_included_in_recyclability"] = included_recycle
                             values_dict["_is_excel_import"] = True
                             manager.add_material(comp_name, dict(values_dict))

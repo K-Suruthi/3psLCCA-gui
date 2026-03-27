@@ -37,7 +37,11 @@ from ...utils.definitions import (
     UNIT_DISPLAY,
 )
 from ...utils.display_format import fmt, fmt_comma, DECIMAL_PLACES
-from ...utils.unit_resolver import get_custom_units, load_custom_units, _UNIT_ALIASES as _SOR_UNIT_ALIASES
+from ...utils.unit_resolver import (
+    get_custom_units,
+    load_custom_units,
+    _UNIT_ALIASES as _SOR_UNIT_ALIASES,
+)
 from ...utils.input_fields.add_material import FIELD_DEFINITIONS, BASE_DOCS_URL
 
 
@@ -168,11 +172,29 @@ def _divider() -> QFrame:
 class CustomUnitDialog(QDialog):
     # (dimension label, SI base unit code, display symbol, placeholder example, note)
     _DIMS = [
-        ("Mass",   "kg",  "kg",  "e.g. 50  (1 bag = 50 kg)",     "SI base: kilogram (kg)"),
-        ("Length", "m",   "m",   "e.g. 0.3048  (1 ft = 0.3048 m)", "SI base: meter (m)"),
-        ("Area",   "m2",  "m²",  "e.g. 25.29  (1 perch = 25.29 m²)", "SI base: square meter (m²)"),
-        ("Volume", "m3",  "m³",  "e.g. 0.0283  (1 cft = 0.0283 m³)", "SI base: cubic meter (m³)"),
-        ("Count",  "nos", "nos", "e.g. 100  (1 bundle = 100 nos)",  "SI base: number (nos)"),
+        ("Mass", "kg", "kg", "e.g. 50  (1 bag = 50 kg)", "SI base: kilogram (kg)"),
+        ("Length", "m", "m", "e.g. 0.3048  (1 ft = 0.3048 m)", "SI base: meter (m)"),
+        (
+            "Area",
+            "m2",
+            "m²",
+            "e.g. 25.29  (1 perch = 25.29 m²)",
+            "SI base: square meter (m²)",
+        ),
+        (
+            "Volume",
+            "m3",
+            "m³",
+            "e.g. 0.0283  (1 cft = 0.0283 m³)",
+            "SI base: cubic meter (m³)",
+        ),
+        (
+            "Count",
+            "nos",
+            "nos",
+            "e.g. 100  (1 bundle = 100 nos)",
+            "SI base: number (nos)",
+        ),
     ]
 
     def __init__(self, parent=None, existing_symbols: list | None = None):
@@ -339,8 +361,9 @@ class CustomUnitDialog(QDialog):
 
         if sym.lower() in self._existing_symbols:
             QMessageBox.critical(
-                self, "Symbol Already Exists",
-                f'"{sym}" is already defined. Choose a different symbol.'
+                self,
+                "Symbol Already Exists",
+                f'"{sym}" is already defined. Choose a different symbol.',
             )
             return
 
@@ -351,8 +374,7 @@ class CustomUnitDialog(QDialog):
                 raise ValueError
         except ValueError:
             QMessageBox.critical(
-                self, "Invalid Value",
-                "SI equivalent must be a positive number."
+                self, "Invalid Value", "SI equivalent must be a positive number."
             )
             return
 
@@ -424,13 +446,15 @@ def _resolve_unit_code(sor_unit: str, combo: "QComboBox") -> int:
 
 def _registry_dir() -> str:
     import os
+
     return os.path.normpath(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'registry')
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "registry")
     )
 
 
 def _ensure_registry_on_path():
     import sys
+
     d = _registry_dir()
     if d not in sys.path:
         sys.path.insert(0, d)
@@ -441,24 +465,30 @@ def _list_sor_options(country: str = None) -> list[dict]:
     result = []
     try:
         from material_catalog import list_databases
+
         raw = list_databases(country=country.strip() if country else None)
         for e in raw:
             if e.get("status") != "OK":
                 continue
             region = e.get("region", "")
-            result.append({"db_key": e["db_key"], "region": region, "label": e["db_key"]})
+            result.append(
+                {"db_key": e["db_key"], "region": region, "label": e["db_key"]}
+            )
     except Exception as ex:
         print(f"[MaterialDialog] Could not list SOR options: {ex}")
 
     try:
         from ..registry.custom_material_db import CustomMaterialDB, CUSTOM_PREFIX
+
         cdb = CustomMaterialDB()
         for db_name in cdb.list_db_names():
-            result.append({
-                "db_key": f"{CUSTOM_PREFIX}{db_name}",
-                "region": "Custom",
-                "label": f"{db_name}  (Custom)",
-            })
+            result.append(
+                {
+                    "db_key": f"{CUSTOM_PREFIX}{db_name}",
+                    "region": "Custom",
+                    "label": f"{db_name}  (Custom)",
+                }
+            )
     except Exception as ex:
         print(f"[MaterialDialog] Could not list custom databases: {ex}")
 
@@ -469,37 +499,47 @@ def _list_sor_types(db_keys: list = None) -> list[str]:
     _ensure_registry_on_path()
     try:
         from material_catalog import list_databases as _list_dbs
+
         available = [
-            e["db_key"] for e in _list_dbs()
-            if e.get("status") == "OK"
-            and (db_keys is None or e["db_key"] in db_keys)
+            e["db_key"]
+            for e in _list_dbs()
+            if e.get("status") == "OK" and (db_keys is None or e["db_key"] in db_keys)
         ]
         if not available:
             return []
         from search_engine import MaterialSearchEngine
+
         engine = MaterialSearchEngine(db_keys=db_keys)
-        return sorted({
-            item.get("type", "").strip()
-            for item in engine._iter_items()
-            if item.get("type", "").strip()
-        })
+        return sorted(
+            {
+                item.get("type", "").strip()
+                for item in engine._iter_items()
+                if item.get("type", "").strip()
+            }
+        )
     except Exception:
         return []
 
 
 _REQUIRED_ITEM_KEYS = (
-    "name", "unit", "rate", "rate_src",
-    "carbon_emission", "carbon_emission_units_den",
-    "conversion_factor", "carbon_emission_src",
+    "name",
+    "unit",
+    "rate",
+    "rate_src",
+    "carbon_emission",
+    "carbon_emission_units_den",
+    "conversion_factor",
+    "carbon_emission_src",
 )
 _ITEM_DEFAULTS = {
-    "rate":                      "not_available",
-    "rate_src":                  "not_available",
-    "carbon_emission":           "not_available",
+    "rate": "not_available",
+    "rate_src": "not_available",
+    "carbon_emission": "not_available",
     "carbon_emission_units_den": "not_available",
-    "conversion_factor":         "not_available",
-    "carbon_emission_src":       "not_available",
+    "conversion_factor": "not_available",
+    "carbon_emission_src": "not_available",
 }
+
 
 def _validate_item(item: dict) -> bool:
     """
@@ -514,12 +554,28 @@ def _validate_item(item: dict) -> bool:
     return True
 
 
+def build_excel_snapshot(values_dict: dict) -> dict:
+    """
+    Build a complete snapshot from an Excel-imported values_dict.
+    Captures all parsed fields to ensure 100% data parity for audit logs.
+    """
+    # Create a shallow copy and explicitly set the action tag
+    snapshot = dict(values_dict)
+    snapshot["action"] = "excel"
+
+    # Optional: Remove internal keys that start with "_" if you want to
+    # keep only "real" data in the snapshot.
+    return {k: v for k, v in snapshot.items() if not k.startswith("_")}
+
+
 def _load_material_suggestions(db_keys: list = None, comp_name: str = None) -> dict:
     _ensure_registry_on_path()
 
     if db_keys is not None:
         regular_keys = [k for k in db_keys if not k.startswith("custom::")]
-        custom_names = [k[len("custom::"):] for k in db_keys if k.startswith("custom::")]
+        custom_names = [
+            k[len("custom::") :] for k in db_keys if k.startswith("custom::")
+        ]
         load_all_custom = False
     else:
         regular_keys = None
@@ -529,12 +585,14 @@ def _load_material_suggestions(db_keys: list = None, comp_name: str = None) -> d
     result = {}
     comp_lower = comp_name.strip().lower() if comp_name else None
 
-    skip_regular = (db_keys is not None and not regular_keys)
+    skip_regular = db_keys is not None and not regular_keys
     if not skip_regular:
         try:
             from material_catalog import list_databases as _list_dbs
+
             _available = [
-                e["db_key"] for e in _list_dbs()
+                e["db_key"]
+                for e in _list_dbs()
                 if e.get("status") == "OK"
                 and (regular_keys is None or e["db_key"] in regular_keys)
             ]
@@ -546,31 +604,36 @@ def _load_material_suggestions(db_keys: list = None, comp_name: str = None) -> d
     if not skip_regular:
         try:
             from search_engine import MaterialSearchEngine
+
             engine = MaterialSearchEngine(db_keys=regular_keys)
 
             if comp_lower:
                 for item in engine._iter_items():
                     if not _validate_item(item):
-                        print(f"[MaterialDialog] Skipping item with missing schema keys: {item.get('name', '<unnamed>')}")
+                        print(
+                            f"[MaterialDialog] Skipping item with missing schema keys: {item.get('name', '<unnamed>')}"
+                        )
                         continue
-                    t = item.get('type', '').lower()
+                    t = item.get("type", "").lower()
                     if t == comp_lower or comp_lower in t or t in comp_lower:
-                        name = item.get('name', '').strip()
+                        name = item.get("name", "").strip()
                         if name:
                             result[name] = item
                 if not result:
                     for item in engine._iter_items():
                         if not _validate_item(item):
                             continue
-                        name = item.get('name', '').strip()
+                        name = item.get("name", "").strip()
                         if name:
                             result[name] = item
             else:
                 for item in engine._iter_items():
                     if not _validate_item(item):
-                        print(f"[MaterialDialog] Skipping item with missing schema keys: {item.get('name', '<unnamed>')}")
+                        print(
+                            f"[MaterialDialog] Skipping item with missing schema keys: {item.get('name', '<unnamed>')}"
+                        )
                         continue
-                    name = item.get('name', '').strip()
+                    name = item.get("name", "").strip()
                     if name:
                         result[name] = item
         except Exception as e:
@@ -579,12 +642,15 @@ def _load_material_suggestions(db_keys: list = None, comp_name: str = None) -> d
     if load_all_custom or custom_names:
         try:
             from ..registry.custom_material_db import CustomMaterialDB
+
             cdb = CustomMaterialDB()
             names_to_load = cdb.list_db_names() if load_all_custom else custom_names
             for db_name in names_to_load:
                 for item in cdb.get_items(db_name):
                     if not _validate_item(item):
-                        print(f"[MaterialDialog] Skipping custom item with missing schema keys: {item.get('name', '<unnamed>')}")
+                        print(
+                            f"[MaterialDialog] Skipping custom item with missing schema keys: {item.get('name', '<unnamed>')}"
+                        )
                         continue
                     name = item.get("name", "").strip()
                     if not name:
@@ -616,10 +682,12 @@ class _SaveToCustomDBDialog(QDialog):
         layout.setSpacing(12)
         layout.setContentsMargins(20, 16, 20, 16)
 
-        layout.addWidget(QLabel(
-            "Select an existing database or type a new name\n"
-            "(e.g. biharSOR-2026, MyMaterials):"
-        ))
+        layout.addWidget(
+            QLabel(
+                "Select an existing database or type a new name\n"
+                "(e.g. biharSOR-2026, MyMaterials):"
+            )
+        )
 
         self.db_combo = QComboBox()
         self.db_combo.setEditable(True)
@@ -676,6 +744,7 @@ def _migrate_embedded_custom_units(values: dict) -> None:
 
     try:
         from ..registry.custom_material_db import CustomMaterialDB
+
         cdb = CustomMaterialDB()
         for u in new_units:
             cdb.save_custom_unit(u)
@@ -693,24 +762,32 @@ class MaterialDialog(QDialog):
     _CUSTOM_CODE = "__custom__"
     _NO_SUGGESTIONS_CODE = "__no_suggestions__"
 
-    def __init__(self, comp_name: str, parent=None, data: dict = None,
-                 emissions_only: bool = False, recyclability_only: bool = False,
-                 country: str = None, sor_db_key: str = None):
+    def __init__(
+        self,
+        comp_name: str,
+        parent=None,
+        data: dict = None,
+        emissions_only: bool = False,
+        recyclability_only: bool = False,
+        country: str = None,
+        sor_db_key: str = None,
+    ):
         super().__init__(parent)
         self.is_edit = data is not None
         self.emissions_only = emissions_only
         self.recyclability_only = recyclability_only
         self._comp_name = comp_name
         self._sor_item = None
-        self._sor_filled_name = None         # name that triggered the last autofill
-        self._is_customized = False
+        self._sor_filled_name = None  # name that triggered the last autofill
         self._sor_filling = False
         self._is_modified_by_user = False
-        self._pre_allow_edit_source = None   # saved when "Allow editing" is checked
-        self._sor_carbon_available = True    # False when SOR has no carbon data
-        self._db_original = {}              # immutable snapshot of DB values at suggestion time
+        self._pre_allow_edit_source = None  # saved when "Allow editing" is checked
+        self._sor_carbon_available = True  # False when SOR has no carbon data
+        self._db_original = {}  # immutable snapshot of DB values at suggestion time
 
-        mat_name = (data.get("values", {}).get("material_name", "") if data else "") or comp_name
+        mat_name = (
+            data.get("values", {}).get("material_name", "") if data else ""
+        ) or comp_name
         if recyclability_only:
             self.setWindowTitle(f"Edit Recyclability — {mat_name}")
         elif emissions_only:
@@ -725,7 +802,9 @@ class MaterialDialog(QDialog):
         v = data.get("values", {}) if self.is_edit else {}
         s = data.get("state", {}) if self.is_edit else {}
         # Restore the immutable DB snapshot saved when this material was first added
-        self._db_original = (data.get("meta", {}) if data else {}).get("db_original", {})
+        self._db_original = (data.get("meta", {}) if data else {}).get(
+            "db_original", {}
+        )
 
         # Migrate any custom units embedded in old project data → global DB
         _migrate_embedded_custom_units(v)
@@ -759,9 +838,15 @@ class MaterialDialog(QDialog):
             sor_info_row.setContentsMargins(0, 0, 0, 0)
             sor_info_row.setSpacing(4)
             sor_info_row.addWidget(QLabel("Suggestions from:"))
-            _sor_val = self._sor_db_key if self._sor_db_key else "— not set (configure in Project Settings)"
+            _sor_val = (
+                self._sor_db_key
+                if self._sor_db_key
+                else "— not set (configure in Project Settings)"
+            )
             sor_val_lbl = QLabel(_sor_val)
-            sor_val_lbl.setStyleSheet("font-size: 11px; color: #555; font-style: italic;")
+            sor_val_lbl.setStyleSheet(
+                "font-size: 11px; color: #555; font-style: italic;"
+            )
             sor_info_row.addWidget(sor_val_lbl, stretch=1)
             root.addLayout(sor_info_row)
 
@@ -780,21 +865,32 @@ class MaterialDialog(QDialog):
             sub_row.addWidget(self.type_filter_cb, stretch=1)
             root.addLayout(sub_row)
             self._populate_type_filter(preselect=comp_name)
-            self.type_filter_cb.currentIndexChanged.connect(self._on_type_filter_changed)
+            self.type_filter_cb.currentIndexChanged.connect(
+                self._on_type_filter_changed
+            )
 
-        # ── Material Name ─────────────────────────────────────────────────
+        # ── Material Name (Always visible) ────────────────────────────────
         root.addWidget(_lbl("Material Name *"))
         self.name_in = QLineEdit(v.get("material_name", ""))
-        self.name_in.setPlaceholderText("e.g. Ready-mix Concrete M25  (type ? to browse all)")
+        self.name_in.setPlaceholderText(
+            "e.g. Ready-mix Concrete M25  (type ? to browse all)"
+        )
         self.name_in.setMinimumHeight(32)
         root.addWidget(self.name_in)
+
+        # ── Item ID (Always visible) ──────────────────────────────────────
+        root.addWidget(_lbl("Item ID / SOR Code"))
+        self.id_in = QLineEdit(v.get("id", ""))
+        self.id_in.setPlaceholderText("e.g. 12.01 (Leave blank for manual)")
+        self.id_in.setMinimumHeight(32)
+        root.addWidget(self.id_in)
 
         # ── Completer ─────────────────────────────────────────────────────
         self._suggestions = {}
         self._active_completer = None
         self._skip_suggestions = False
         self._ui_ready = False
-        self._user_edited_snapshot = {}   # saved when user unchecks "Allow editing"
+        self._user_edited_snapshot = {}  # saved when user unchecks "Allow editing"
         self._reload_suggestions()
         self.name_in.textChanged.connect(self._on_name_search_changed)
         if self.sor_cb:
@@ -1042,8 +1138,17 @@ class MaterialDialog(QDialog):
         self.type_in.setEditable(True)
         self.type_in.setMinimumHeight(32)
         self.type_in.wheelEvent = lambda event: event.ignore()
-        for t in ["Concrete", "Steel", "Masonry", "Timber", "Finishing",
-                  "Insulation", "Glass", "Aluminum", "Other"]:
+        for t in [
+            "Concrete",
+            "Steel",
+            "Masonry",
+            "Timber",
+            "Finishing",
+            "Insulation",
+            "Glass",
+            "Aluminum",
+            "Other",
+        ]:
             self.type_in.addItem(t)
         existing_type = v.get("type", "")
         if existing_type:
@@ -1065,7 +1170,10 @@ class MaterialDialog(QDialog):
         btn_bar = QWidget()
         btn_bar.setObjectName("btn_bar")
         from gui.themes import get_token
-        btn_bar.setStyleSheet(f"#btn_bar {{ border-top: 1px solid {get_token('$border', '#dee2e6')}; }}")
+
+        btn_bar.setStyleSheet(
+            f"#btn_bar {{ border-top: 1px solid {get_token('$border', '#dee2e6')}; }}"
+        )
         btn_layout = QHBoxLayout(btn_bar)
         btn_layout.setContentsMargins(20, 10, 20, 10)
         btn_layout.setSpacing(8)
@@ -1073,7 +1181,9 @@ class MaterialDialog(QDialog):
         self.custom_db_btn = QPushButton("Save to Custom DB…")
         self.custom_db_btn.setMinimumHeight(34)
         self.custom_db_btn.setMinimumWidth(150)
-        self.custom_db_btn.setToolTip("Save this material to a user-created custom database")
+        self.custom_db_btn.setToolTip(
+            "Save this material to a user-created custom database"
+        )
         self.custom_db_btn.clicked.connect(self._on_save_to_custom_db)
 
         self.cancel_btn = QPushButton("Cancel")
@@ -1111,16 +1221,26 @@ class MaterialDialog(QDialog):
 
             # Text inputs → read-only
             for _w in (
-                self.name_in, self.qty_in, self.rate_in, self.src_in,
-                self.carbon_em_in, self.conv_factor_in,
-                self.scrap_in, self.recycling_perc_in, self.grade_in,
+                self.name_in,
+                self.qty_in,
+                self.rate_in,
+                self.src_in,
+                self.carbon_em_in,
+                self.conv_factor_in,
+                self.scrap_in,
+                self.recycling_perc_in,
+                self.grade_in,
             ):
                 _w.setReadOnly(True)
 
             # Dropdowns and checkboxes → disabled
             for _w in (
-                self.unit_in, self.carbon_denom_cb, self.type_in,
-                self._allow_edit_chk, self.carbon_chk, self.recycle_chk,
+                self.unit_in,
+                self.carbon_denom_cb,
+                self.type_in,
+                self._allow_edit_chk,
+                self.carbon_chk,
+                self.recycle_chk,
             ):
                 _w.setEnabled(False)
 
@@ -1132,16 +1252,30 @@ class MaterialDialog(QDialog):
 
         # ── Freeze fields for emissions_only / recyclability_only modes ───
         if emissions_only:
-            for w in (self.name_in, self.qty_in, self.rate_in, self.src_in,
-                      self.scrap_in, self.recycling_perc_in, self.grade_in):
+            for w in (
+                self.name_in,
+                self.qty_in,
+                self.rate_in,
+                self.src_in,
+                self.scrap_in,
+                self.recycling_perc_in,
+                self.grade_in,
+            ):
                 w.setReadOnly(True)
             self.unit_in.setEnabled(False)
             self.recycle_chk.setEnabled(False)
             self.type_in.setEnabled(False)
             self.save_btn.setText("Save Emission Data")
         elif recyclability_only:
-            for w in (self.name_in, self.qty_in, self.rate_in, self.src_in,
-                      self.carbon_em_in, self.conv_factor_in, self.grade_in):
+            for w in (
+                self.name_in,
+                self.qty_in,
+                self.rate_in,
+                self.src_in,
+                self.carbon_em_in,
+                self.conv_factor_in,
+                self.grade_in,
+            ):
                 w.setReadOnly(True)
             self.unit_in.setEnabled(False)
             self.carbon_chk.setEnabled(False)
@@ -1155,25 +1289,46 @@ class MaterialDialog(QDialog):
         self.carbon_container.setVisible(self.carbon_chk.isChecked())
         self.recycle_container.setVisible(self.recycle_chk.isChecked())
 
-        self.carbon_denom_cb.currentIndexChanged.connect(self._on_denom_combobox_changed)
+        self.carbon_denom_cb.currentIndexChanged.connect(
+            self._on_denom_combobox_changed
+        )
         self.carbon_em_in.textChanged.connect(self._update_formula_preview)
         self.conv_factor_in.textChanged.connect(self._update_formula_preview)
         self.qty_in.textChanged.connect(self._update_formula_preview)
 
-        for _w in (self.name_in, self.qty_in, self.rate_in, self.src_in,
-                   self.carbon_em_in, self.conv_factor_in,
-                   self.scrap_in, self.recycling_perc_in, self.grade_in):
+        for _w in (
+            self.name_in,
+            self.qty_in,
+            self.rate_in,
+            self.src_in,
+            self.carbon_em_in,
+            self.conv_factor_in,
+            self.scrap_in,
+            self.recycling_perc_in,
+            self.grade_in,
+        ):
             _w.textChanged.connect(self._on_field_manually_changed)
         self.unit_in.currentIndexChanged.connect(self._on_field_manually_changed)
-        self.carbon_denom_cb.currentIndexChanged.connect(self._on_field_manually_changed)
+        self.carbon_denom_cb.currentIndexChanged.connect(
+            self._on_field_manually_changed
+        )
         self.type_in.currentIndexChanged.connect(self._on_field_manually_changed)
 
         self._update_cf()
         self._ui_ready = True
 
         # ── Re-apply DB lock when editing a previously SOR-filled material ──
-        _src = (data.get("meta", {}).get("source", "manual") if data else "manual")
-        if self.is_edit and _src in ("db", "db_modified", "custom_db", "custom_db_modified"):
+        _src = (data.get("meta", {}).get("source", "") if data else "") or (
+            data.get("meta", {}).get("db_original", {}) if data else {}
+        ).get("action", "user_added")
+        if self.is_edit and _src in (
+            "internal_db",
+            "custom_db",
+            "excel",
+            "db",
+            "db_modified",
+            "custom_db_modified",
+        ):
             mat_name = v.get("material_name", "")
             self._sor_item = self._suggestions.get(mat_name)
             self._allow_edit_chk.setEnabled(True)
@@ -1207,7 +1362,9 @@ class MaterialDialog(QDialog):
         if self._suggestions:
             if self._active_completer is None:
                 self._active_completer = QCompleter(self)
-                self._active_completer.setCompletionMode(QCompleter.UnfilteredPopupCompletion)
+                self._active_completer.setCompletionMode(
+                    QCompleter.UnfilteredPopupCompletion
+                )
                 self._active_completer.setCaseSensitivity(Qt.CaseInsensitive)
                 self._active_completer.setMaxVisibleItems(10)
                 self._active_completer.activated.connect(self._on_suggestion_selected)
@@ -1251,7 +1408,8 @@ class MaterialDialog(QDialog):
             filtered = sorted(self._suggestions.keys())
         else:
             filtered = sorted(
-                name for name in self._suggestions
+                name
+                for name in self._suggestions
                 if AdvancedSearchEngine.is_match(q, name)
             )
         self._active_completer.setModel(QStringListModel(filtered, self))
@@ -1302,14 +1460,14 @@ class MaterialDialog(QDialog):
                 t = (self.type_filter_cb.itemData(i) or "").lower()
                 if t == pre_lower:
                     best_idx = i
-                    break                          # exact match — nothing better
+                    break  # exact match — nothing better
                 elif pre_lower in t:
-                    score = 2 + len(t)            # comp fits into type; prefer shorter
+                    score = 2 + len(t)  # comp fits into type; prefer shorter
                     if score > best_score:
                         best_score = score
                         best_idx = i
                 elif t in pre_lower:
-                    score = 1 + len(t)            # type fits into comp; prefer longer
+                    score = 1 + len(t)  # type fits into comp; prefer longer
                     if score > best_score:
                         best_score = score
                         best_idx = i
@@ -1351,6 +1509,7 @@ class MaterialDialog(QDialog):
     def _lock_autofilled_fields(self, lock: bool):
         # qty_in is always freely editable; everything else is DB-filled.
         self.unit_in.setEnabled(not lock)
+        self.id_in.setReadOnly(lock)
         self.rate_in.setReadOnly(lock)
         self.src_in.setReadOnly(lock)
         self.carbon_em_in.setReadOnly(lock)
@@ -1366,17 +1525,17 @@ class MaterialDialog(QDialog):
                 self._sor_filling = True
                 try:
                     snap = self._user_edited_snapshot
-                    self.rate_in.setText(snap.get('rate', ''))
-                    if snap.get('unit_idx', -1) >= 0:
-                        self.unit_in.setCurrentIndex(snap['unit_idx'])
-                    self.src_in.setText(snap.get('src', ''))
-                    self.carbon_em_in.setText(snap.get('carbon_em', ''))
-                    if snap.get('carbon_denom_idx', -1) >= 0:
-                        self.carbon_denom_cb.setCurrentIndex(snap['carbon_denom_idx'])
-                    self.carbon_src_in.setText(snap.get('carbon_src', ''))
-                    self.conv_factor_in.setText(snap.get('conv_factor', ''))
-                    self.carbon_chk.setChecked(snap.get('carbon_chk', False))
-                    self.recycle_chk.setChecked(snap.get('recycle_chk', False))
+                    self.rate_in.setText(snap.get("rate", ""))
+                    if snap.get("unit_idx", -1) >= 0:
+                        self.unit_in.setCurrentIndex(snap["unit_idx"])
+                    self.src_in.setText(snap.get("src", ""))
+                    self.carbon_em_in.setText(snap.get("carbon_em", ""))
+                    if snap.get("carbon_denom_idx", -1) >= 0:
+                        self.carbon_denom_cb.setCurrentIndex(snap["carbon_denom_idx"])
+                    self.carbon_src_in.setText(snap.get("carbon_src", ""))
+                    self.conv_factor_in.setText(snap.get("conv_factor", ""))
+                    self.carbon_chk.setChecked(snap.get("carbon_chk", False))
+                    self.recycle_chk.setChecked(snap.get("recycle_chk", False))
                 finally:
                     self._sor_filling = False
             else:
@@ -1391,41 +1550,50 @@ class MaterialDialog(QDialog):
             if self._sor_item is not None:
                 # Snapshot all current user-edited values before overwriting with DB values
                 self._user_edited_snapshot = {
-                    'rate':             self.rate_in.text(),
-                    'unit_idx':         self.unit_in.currentIndex(),
-                    'src':              self.src_in.text(),
-                    'carbon_em':        self.carbon_em_in.text(),
-                    'carbon_denom_idx': self.carbon_denom_cb.currentIndex(),
-                    'carbon_src':       self.carbon_src_in.text(),
-                    'conv_factor':      self.conv_factor_in.text(),
-                    'carbon_chk':       self.carbon_chk.isChecked(),
-                    'recycle_chk':      self.recycle_chk.isChecked(),
+                    "rate": self.rate_in.text(),
+                    "unit_idx": self.unit_in.currentIndex(),
+                    "src": self.src_in.text(),
+                    "carbon_em": self.carbon_em_in.text(),
+                    "carbon_denom_idx": self.carbon_denom_cb.currentIndex(),
+                    "carbon_src": self.carbon_src_in.text(),
+                    "conv_factor": self.conv_factor_in.text(),
+                    "carbon_chk": self.carbon_chk.isChecked(),
+                    "recycle_chk": self.recycle_chk.isChecked(),
                 }
                 # Restore all values from the DB suggestion that was selected
                 self._sor_filling = True
                 try:
                     item = self._sor_item
-                    unit = item.get('unit', '')
+                    unit = item.get("unit", "")
                     if unit:
                         idx = _resolve_unit_code(unit, self.unit_in)
                         if idx >= 0:
                             self.unit_in.setCurrentIndex(idx)
 
-                    rate = item.get('rate', '')
-                    self.rate_in.setText(fmt(rate) if rate not in ('', 'not_available', None) else '')
-
-                    src = item.get('rate_src', '')
-                    self.src_in.setText(str(src) if src not in ('', 'not_available', None) else '')
-
-                    carbon_src = item.get('carbon_emission_src', '')
-                    self.carbon_src_in.setText(str(carbon_src) if carbon_src not in ('', 'not_available', None) else '')
-
-                    carbon = item.get('carbon_emission', 'not_available')
-                    denom = item.get('carbon_emission_units_den', 'not_available')
-                    carbon_available = (
-                        carbon not in ('not_available', '', None)
-                        and denom not in ('not_available', '', None)
+                    rate = item.get("rate", "")
+                    self.rate_in.setText(
+                        fmt(rate) if rate not in ("", "not_available", None) else ""
                     )
+
+                    src = item.get("rate_src", "")
+                    self.src_in.setText(
+                        str(src) if src not in ("", "not_available", None) else ""
+                    )
+
+                    carbon_src = item.get("carbon_emission_src", "")
+                    self.carbon_src_in.setText(
+                        str(carbon_src)
+                        if carbon_src not in ("", "not_available", None)
+                        else ""
+                    )
+
+                    carbon = item.get("carbon_emission", "not_available")
+                    denom = item.get("carbon_emission_units_den", "not_available")
+                    carbon_available = carbon not in (
+                        "not_available",
+                        "",
+                        None,
+                    ) and denom not in ("not_available", "", None)
                     self._sor_carbon_available = carbon_available
                     if carbon_available:
                         self.carbon_em_in.setText(fmt(carbon))
@@ -1433,12 +1601,14 @@ class MaterialDialog(QDialog):
                         if didx >= 0:
                             self.carbon_denom_cb.setCurrentIndex(didx)
                     else:
-                        self.carbon_em_in.setText('')
+                        self.carbon_em_in.setText("")
                     self.carbon_chk.setChecked(carbon_available)
                     self.carbon_chk.setEnabled(carbon_available)
 
-                    cf = item.get('conversion_factor', 'not_available')
-                    self.conv_factor_in.setText(fmt(cf) if cf not in ('not_available', '', None, 0, 0.0) else '')
+                    cf = item.get("conversion_factor", "not_available")
+                    self.conv_factor_in.setText(
+                        fmt(cf) if cf not in ("not_available", "", None, 0, 0.0) else ""
+                    )
 
                     self.recycle_chk.setChecked(False)
                     self.recycle_chk.setEnabled(True)
@@ -1449,10 +1619,10 @@ class MaterialDialog(QDialog):
                 self._update_cf()
             else:
                 # No DB suggestion — restore the sources saved at check time, or the originals
-                restore_src = getattr(self, '_pre_allow_edit_source', None)
+                restore_src = getattr(self, "_pre_allow_edit_source", None)
                 if restore_src is None:
                     restore_src = self._original_source
-                restore_carbon_src = getattr(self, '_pre_allow_edit_carbon_src', None)
+                restore_carbon_src = getattr(self, "_pre_allow_edit_carbon_src", None)
                 if restore_carbon_src is None:
                     restore_carbon_src = self._original_carbon_src
                 self._sor_filling = True
@@ -1467,13 +1637,15 @@ class MaterialDialog(QDialog):
     def _on_save_to_custom_db(self):
         if not self.name_in.text().strip():
             QMessageBox.warning(
-                self, "Missing Name",
-                "Please enter a material name before saving to a custom database."
+                self,
+                "Missing Name",
+                "Please enter a material name before saving to a custom database.",
             )
             return
 
         try:
             from ..registry.custom_material_db import CustomMaterialDB
+
             cdb = CustomMaterialDB()
             existing = cdb.list_db_names()
         except Exception as e:
@@ -1488,9 +1660,10 @@ class MaterialDialog(QDialog):
         try:
             cdb.save_material(db_name, self.get_values())
             QMessageBox.information(
-                self, "Saved",
+                self,
+                "Saved",
                 f"Material saved to '{db_name}'.\n"
-                f"It will appear in suggestions next time you open this dialog."
+                f"It will appear in suggestions next time you open this dialog.",
             )
         except Exception as e:
             QMessageBox.critical(self, "Save Failed", str(e))
@@ -1507,32 +1680,34 @@ class MaterialDialog(QDialog):
             return
 
         # New suggestion — discard any snapshot from a previous suggestion's edit session
+        self.id_in.setText(str(item.get("id", "")))
         self._user_edited_snapshot = {}
         self._sor_filling = True
         try:
-            unit = item.get('unit', '')
+            unit = item.get("unit", "")
             unit_filled = bool(unit)
             if unit_filled:
                 idx = _resolve_unit_code(unit, self.unit_in)
                 if idx >= 0:
                     self.unit_in.setCurrentIndex(idx)
 
-            rate = item.get('rate', '')
-            rate_filled = rate not in ('', 'not_available', None)
+            rate = item.get("rate", "")
+            rate_filled = rate not in ("", "not_available", None)
             if rate_filled:
                 self.rate_in.setText(fmt(rate))
 
-            src = item.get('rate_src', '')
-            src_filled = src not in ('', 'not_available', None)
+            src = item.get("rate_src", "")
+            src_filled = src not in ("", "not_available", None)
             if src_filled:
                 self.src_in.setText(str(src))
 
-            carbon = item.get('carbon_emission', 'not_available')
-            denom = item.get('carbon_emission_units_den', 'not_available')
-            carbon_available = (
-                carbon not in ('not_available', '', None)
-                and denom not in ('not_available', '', None)
-            )
+            carbon = item.get("carbon_emission", "not_available")
+            denom = item.get("carbon_emission_units_den", "not_available")
+            carbon_available = carbon not in (
+                "not_available",
+                "",
+                None,
+            ) and denom not in ("not_available", "", None)
             self._sor_carbon_available = carbon_available
 
             if carbon_available:
@@ -1541,18 +1716,20 @@ class MaterialDialog(QDialog):
                 if didx >= 0:
                     self.carbon_denom_cb.setCurrentIndex(didx)
             else:
-                self.carbon_em_in.setText('')
+                self.carbon_em_in.setText("")
             self.carbon_chk.setChecked(carbon_available)
             self.carbon_chk.setEnabled(carbon_available)
 
-            carbon_src = item.get('carbon_emission_src', '')
-            self.carbon_src_in.setText(str(carbon_src) if carbon_src not in ('', 'not_available', None) else '')
+            carbon_src = item.get("carbon_emission_src", "")
+            self.carbon_src_in.setText(
+                str(carbon_src) if carbon_src not in ("", "not_available", None) else ""
+            )
 
-            cf = item.get('conversion_factor', 'not_available')
-            if cf not in ('not_available', '', None, 0, 0.0):
+            cf = item.get("conversion_factor", "not_available")
+            if cf not in ("not_available", "", None, 0, 0.0):
                 self.conv_factor_in.setText(fmt(cf))
             else:
-                self.conv_factor_in.setText('')
+                self.conv_factor_in.setText("")
 
             self.recycle_chk.setChecked(False)
             self.recycle_chk.setEnabled(True)
@@ -1564,15 +1741,21 @@ class MaterialDialog(QDialog):
             # Snapshot original DB values (written once; never overwritten on re-open)
             if not self._db_original:
                 _db_key = item.get("db_key", "") or self._sor_db_key
+                _action = (
+                    "custom_db" if _db_key.startswith("custom::") else "internal_db"
+                )
                 self._db_original = {
-                    "unit":                      item.get("unit", ""),
-                    "rate":                      item.get("rate", ""),
-                    "rate_src":                  item.get("rate_src", ""),
-                    "carbon_emission":           item.get("carbon_emission", ""),
-                    "carbon_emission_units_den": item.get("carbon_emission_units_den", ""),
-                    "carbon_emission_src":       item.get("carbon_emission_src", ""),
-                    "conversion_factor":         item.get("conversion_factor", ""),
-                    "db_key":                    _db_key,
+                    "action": _action,
+                    "unit": item.get("unit", ""),
+                    "rate": item.get("rate", ""),
+                    "rate_src": item.get("rate_src", ""),
+                    "carbon_emission": item.get("carbon_emission", ""),
+                    "carbon_emission_units_den": item.get(
+                        "carbon_emission_units_den", ""
+                    ),
+                    "carbon_emission_src": item.get("carbon_emission_src", ""),
+                    "conversion_factor": item.get("conversion_factor", ""),
+                    "db_key": _db_key,
                 }
 
         finally:
@@ -1599,7 +1782,11 @@ class MaterialDialog(QDialog):
             for code, info in units.items():
                 si_val = UNIT_TO_SI.get(code)
                 si_unit_code = SI_BASE_UNITS.get(dim, "")
-                sym = _unit_sym(code) if code in UNIT_DISPLAY else info["name"].split(",")[0].strip()
+                sym = (
+                    _unit_sym(code)
+                    if code in UNIT_DISPLAY
+                    else info["name"].split(",")[0].strip()
+                )
                 si_sym = _unit_sym(si_unit_code)
                 short_name = info["name"].split(",")[-1].strip()
                 item = QStandardItem(f"{sym} — {short_name}")
@@ -1618,7 +1805,9 @@ class MaterialDialog(QDialog):
             sep_c.setFlags(Qt.ItemFlag(0))
             model.appendRow(sep_c)
             for cu in _global_custom:
-                display = f"{cu['symbol']} — {cu['name']}" if cu.get("name") else cu["symbol"]
+                display = (
+                    f"{cu['symbol']} — {cu['name']}" if cu.get("name") else cu["symbol"]
+                )
                 item = QStandardItem(display)
                 item.setData(cu["symbol"], Qt.UserRole)
                 item.setData(
@@ -1647,6 +1836,7 @@ class MaterialDialog(QDialog):
 
     def _get_unit_info(self, code: str):
         from ...utils.unit_resolver import get_unit_info as _get_unit_info
+
         return _get_unit_info(code)
 
     _DB_NA = frozenset({"not_available", "", None})
@@ -1726,20 +1916,31 @@ class MaterialDialog(QDialog):
         prev_mat = self.unit_in.currentData()
         prev_denom = self.carbon_denom_cb.currentData()
 
-        existing_syms = list(UNIT_TO_SI.keys()) + [c["symbol"] for c in get_custom_units()]
+        existing_syms = list(UNIT_TO_SI.keys()) + [
+            c["symbol"] for c in get_custom_units()
+        ]
         dialog = CustomUnitDialog(self, existing_symbols=existing_syms)
         if dialog.exec():
             cu = dialog.get_unit()
             # Persist to DB and refresh the global cache so all open dialogs see it
             try:
                 from ..registry.custom_material_db import CustomMaterialDB
+
                 CustomMaterialDB().save_custom_unit(cu)
                 load_custom_units()
             except Exception as exc:
                 print(f"[MaterialDialog] Could not save custom unit: {exc}")
             new_sym = cu["symbol"]
-            mat_sel = new_sym if triggering_cb is self.unit_in else (prev_mat if prev_mat != self._CUSTOM_CODE else new_sym)
-            denom_sel = new_sym if triggering_cb is self.carbon_denom_cb else (prev_denom if prev_denom != self._CUSTOM_CODE else new_sym)
+            mat_sel = (
+                new_sym
+                if triggering_cb is self.unit_in
+                else (prev_mat if prev_mat != self._CUSTOM_CODE else new_sym)
+            )
+            denom_sel = (
+                new_sym
+                if triggering_cb is self.carbon_denom_cb
+                else (prev_denom if prev_denom != self._CUSTOM_CODE else new_sym)
+            )
             self._rebuild_unit_models(mat_sel=mat_sel, denom_sel=denom_sel)
         else:
             prev = prev_mat if triggering_cb is self.unit_in else prev_denom
@@ -1870,7 +2071,8 @@ class MaterialDialog(QDialog):
 
             if ef <= 0:
                 reply = QMessageBox.warning(
-                    self, "Emission Factor",
+                    self,
+                    "Emission Factor",
                     "Emission factor is zero or empty — carbon calculation will be excluded.\n\nContinue?",
                     QMessageBox.Yes | QMessageBox.No,
                 )
@@ -1879,7 +2081,8 @@ class MaterialDialog(QDialog):
                 self.carbon_chk.setChecked(False)
             elif cf <= 0:
                 reply = QMessageBox.warning(
-                    self, "Conversion Factor",
+                    self,
+                    "Conversion Factor",
                     "Conversion factor is zero — carbon calculation will be excluded.\n\nContinue?",
                     QMessageBox.Yes | QMessageBox.No,
                 )
@@ -1893,7 +2096,8 @@ class MaterialDialog(QDialog):
                 _, denom_dim = self._get_unit_info(denom_code)
                 if mat_dim != denom_dim and abs(cf - 1.0) < 1e-6:
                     res = QMessageBox.warning(
-                        self, "Check Conversion Factor",
+                        self,
+                        "Check Conversion Factor",
                         f"Material dimension ({mat_dim}) and carbon unit dimension ({denom_dim}) differ.\n"
                         f"Conversion factor is 1.0 — this is likely incorrect.\n\nContinue anyway?",
                         QMessageBox.Yes | QMessageBox.No,
@@ -1909,7 +2113,8 @@ class MaterialDialog(QDialog):
                 scrap, recycle = 0, 0
             if scrap <= 0 and recycle <= 0:
                 reply = QMessageBox.warning(
-                    self, "Recyclability",
+                    self,
+                    "Recyclability",
                     "Both scrap rate and recovery percentage are zero — recyclability will be excluded.\n\nContinue?",
                     QMessageBox.Yes | QMessageBox.No,
                 )
@@ -1921,40 +2126,43 @@ class MaterialDialog(QDialog):
 
     # ── Output ────────────────────────────────────────────────────────────
 
+    def _compute_action(self) -> str:
+        """Determines the source 'action' for metadata: user_added, internal_db, custom_db, or excel."""
+        if self._db_original.get("action") == "excel":
+            return "excel"
+        if self._sor_item:
+            return (
+                "custom_db"
+                if (self._db_original.get("db_key") or "").startswith("custom::")
+                else "internal_db"
+            )
+        return "user_added"
+
     def get_values(self) -> dict:
+        """Returns a clean dictionary of material data for the OsBridgeLCCA database."""
         actual_unit = self.unit_in.currentData() or ""
         unit_to_si, _ = self._get_unit_info(actual_unit)
-        if unit_to_si is None:
-            unit_to_si = 1.0
-
-        denom_code = self.carbon_denom_cb.currentData() or ""
 
         return {
+            "id": self.id_in.text().strip(),
             "material_name": self.name_in.text().strip(),
             "quantity": float(self.qty_in.text() or 0),
             "unit": actual_unit,
-            "unit_to_si": unit_to_si,
+            "unit_to_si": unit_to_si or 1.0,
             "rate": float(self.rate_in.text() or 0),
             "rate_source": self.src_in.text().strip(),
             "carbon_emission": float(self.carbon_em_in.text() or 0),
-            "carbon_unit": f"kgCO₂e/{denom_code}",
+            "carbon_unit": f"kgCO₂e/{self.carbon_denom_cb.currentData() or ''}",
             "conversion_factor": float(self.conv_factor_in.text() or 0),
             "scrap_rate": float(self.scrap_in.text() or 0),
-            "post_demolition_recovery_percentage": float(self.recycling_perc_in.text() or 0),
-            "is_recyclable": self.recycle_chk.isChecked() and bool(self.recycling_perc_in.text()),
+            "post_demolition_recovery_percentage": float(
+                self.recycling_perc_in.text() or 0
+            ),
             "grade": self.grade_in.text().strip(),
             "type": self.type_in.currentText().strip(),
-            "_included_in_carbon_emission": self.carbon_chk.isChecked(),
-            "_included_in_recyclability": self.recycle_chk.isChecked(),
-            "_from_sor": self._sor_item is not None,
-            "_sor_db_key": self._sor_item.get("db_key", "") if self._sor_item else "",
-            "_is_customized": self._is_customized if self._sor_item is not None else False,
-            "_is_modified_by_user": self._is_modified_by_user,
+            "_action": self._compute_action(),
             "_db_original": self._db_original,
-            "_modified_fields": self._compute_modified_fields(),
-            "_allow_edit_checked": (
-                self._allow_edit_chk.isChecked() and self._allow_edit_chk.isEnabled()
-            ),
+            "_allow_edit_checked": self._allow_edit_chk.isChecked(),
         }
 
     # ── Window close / Escape ─────────────────────────────────────────────
@@ -1968,6 +2176,7 @@ class MaterialDialog(QDialog):
         """Escape → Cancel. Enter/Return → trigger the default button only if
         focus is not on a text field (prevents accidental submission)."""
         from PySide6.QtCore import Qt as _Qt
+
         if event.key() == _Qt.Key_Escape:
             self.reject()
         elif event.key() in (_Qt.Key_Return, _Qt.Key_Enter):

@@ -54,6 +54,12 @@ QPlainTextEdit:focus {
     padding: 5px 11px;
 }
 
+QLineEdit:read-only,
+QTextEdit:read-only,
+QPlainTextEdit:read-only {
+    color: $secondary;
+}
+
 QLineEdit:disabled,
 QTextEdit:disabled,
 QPlainTextEdit:disabled {
