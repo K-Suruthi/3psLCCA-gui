@@ -1,7 +1,7 @@
 import sys
 import os
 from PySide6.QtWidgets import QApplication, QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit, QProxyStyle, QStyle, QTableView, QSplashScreen
-from PySide6.QtCore import QObject, QEvent, Qt, QTimer
+from PySide6.QtCore import QObject, QEvent, Qt, QTimer, QCoreApplication
 from PySide6.QtGui import QFocusEvent, QMouseEvent, QFontDatabase, QPixmap, QColor
 from gui.project_manager import ProjectManager
 from gui.themes import get_light_theme, get_dark_theme, resolve_is_dark, track_mode
@@ -108,7 +108,7 @@ class SelectTextOnFocus(QObject):
 def main():
     os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
     os.environ["QT_SCALE_FACTOR"] = "1"
-
+    QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeMenuBar)
     app = QApplication(sys.argv)
 
     # Show splash immediately so the user sees something while loading
